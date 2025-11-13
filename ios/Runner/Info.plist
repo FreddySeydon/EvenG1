@@ -34,6 +34,15 @@
 	<string>The speech inquiry feature requires converting voice content to text and then returning the result to the device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs location access to fetch weather information for your current city.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>This app needs contacts access to display caller names for incoming calls.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
+		<string>audio</string>
+		<string>processing</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

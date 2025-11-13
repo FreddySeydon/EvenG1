@@ -1,5 +1,5 @@
 //
-//  BluetoothManager.swift
+//  AppDelegate.swift
 //  Runner
 //
 //  Created by Hawk on 2024/10/23.
@@ -7,11 +7,14 @@
 
 import UIKit
 import Flutter
+import BackgroundTasks
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
 
     private var blueInstance = BluetoothManager.shared
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
     override func application(
         _ application: UIApplication,
@@ -24,6 +27,9 @@ import Flutter
         let channel = FlutterMethodChannel(name: "method.bluetooth", binaryMessenger: controller.binaryMessenger)
         
         blueInstance = BluetoothManager(channel: channel)
+        
+        // Initialize call state listener
+        CallStateListener.shared.startListening()
 
         // Set method call handler for Flutter channel
         channel.setMethodCallHandler { [weak self] (call, result) in
@@ -68,6 +74,46 @@ import Flutter
                 // iOS doesn't allow querying all installed apps for privacy reasons
                 // Return empty list or apps we can query (requires special entitlements)
                 result([])
+            case "startForegroundService":
+                // iOS equivalent: Start background task to keep app running
+                self.startBackgroundService(result: result)
+            case "stopForegroundService":
+                // iOS equivalent: Stop background task
+                self.stopBackgroundService(result: result)
+            case "checkBleConnectionStatus":
+                // Check if BLE is connected
+                let isConnected = self.blueInstance.leftPeripheral != nil && 
+                                 self.blueInstance.rightPeripheral != nil &&
+                                 self.blueInstance.leftWChar != nil &&
+                                 self.blueInstance.rightWChar != nil
+                result(isConnected)
+            case "requestNotificationPermission":
+                // iOS notification permission is handled by system
+                // Return true as iOS handles this automatically
+                result(true)
+            case "requestBatteryOptimization":
+                // iOS doesn't have battery optimization like Android
+                // Return true as iOS handles background execution differently
+                result(true)
+            case "checkBatteryOptimization":
+                // iOS doesn't have battery optimization like Android
+                // Return true as iOS handles background execution differently
+                result(true)
+            case "showWeatherNotification":
+                // Show local notification for weather update
+                if let args = call.arguments as? [String: Any], let message = args["message"] as? String {
+                    self.showWeatherNotification(message: message, result: result)
+                } else {
+                    result(FlutterError(code: "InvalidArguments", message: "message is required", details: nil))
+                }
+            case "resolveCallerName":
+                // Resolve caller name from phone number
+                if let args = call.arguments as? [String: Any], let phoneNumber = args["phoneNumber"] as? String {
+                    let name = CallStateListener.shared.getCallerDisplayName(phoneNumber: phoneNumber)
+                    result(name)
+                } else {
+                    result(FlutterError(code: "InvalidArguments", message: "phoneNumber is required", details: nil))
+                }
             case "glassesConnectionFailed":
                 // Handle connection failure if needed
                 break
@@ -91,6 +137,70 @@ import Flutter
 
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
+    
+    // MARK: - Background Service Methods (iOS equivalent of foreground service)
+    
+    private func startBackgroundService(result: @escaping FlutterResult) {
+        // iOS doesn't have foreground services like Android
+        // Instead, we use background tasks and background modes
+        // The app will continue running in background if background modes are enabled
+        
+        // Request background time if needed
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask { [weak self] in
+            // Background task expired
+            if let taskID = self?.backgroundTaskID {
+                UIApplication.shared.endBackgroundTask(taskID)
+                self?.backgroundTaskID = .invalid
+            }
+        }
+        
+        print("AppDelegate: Background service started (background task ID: \(backgroundTaskID.rawValue))")
+        result(true)
+    }
+    
+    private func stopBackgroundService(result: @escaping FlutterResult) {
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+            print("AppDelegate: Background service stopped")
+        }
+        result(true)
+    }
+    
+    private func showWeatherNotification(message: String, result: @escaping FlutterResult) {
+        let content = UNMutableNotificationContent()
+        content.title = "Weather Updated"
+        content.body = message
+        content.sound = .default
+        
+        let request = UNNotificationRequest(
+            identifier: "weather_update_\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil // Show immediately
+        )
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("AppDelegate: Error showing weather notification: \(error)")
+                result(FlutterError(code: "NOTIFICATION_ERROR", message: error.localizedDescription, details: nil))
+            } else {
+                print("AppDelegate: Weather notification shown successfully")
+                result(true)
+            }
+        }
+    }
+    
+    // MARK: - Background App Refresh
+    
+    override func applicationDidEnterBackground(_ application: UIApplication) {
+        super.applicationDidEnterBackground(application)
+        print("AppDelegate: App entered background")
+    }
+    
+    override func applicationWillEnterForeground(_ application: UIApplication) {
+        super.applicationWillEnterForeground(application)
+        print("AppDelegate: App will enter foreground")
+    }
 }
 
 // MARK: - FlutterStreamHandler
@@ -104,10 +214,11 @@ extension AppDelegate : FlutterStreamHandler {
         } else if (arguments as? String == "eventSpeechRecognize") {
             BluetoothManager.shared.blueSpeechSink = events
         } else if (arguments as? String == "eventNotificationReceived") {
-            // iOS: Notification interception not supported without Notification Service Extension
-            // Events will not be sent
+            // iOS: Set up call event sink for call notifications
+            // Note: Full notification interception requires Notification Service Extension
+            CallStateListener.shared.callEventSink = events
         } else if (arguments as? String == "eventNotificationListenerStatus") {
-            // iOS: Always report as disabled since we don't support it
+            // iOS: Always report as disabled since we don't support full notification interception
             events(false)
         } else {
             // TODO
@@ -116,6 +227,9 @@ extension AppDelegate : FlutterStreamHandler {
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        if (arguments as? String == "eventNotificationReceived") {
+            CallStateListener.shared.callEventSink = nil
+        }
         return nil
     }
 }
