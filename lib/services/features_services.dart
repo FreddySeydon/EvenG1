@@ -8,6 +8,10 @@ class FeaturesServices {
   final bmpUpdateManager = BmpUpdateManager();
   Future<void> sendBmp(String imageUrl) async {
     Uint8List bmpData = await Utils.loadBmpImage(imageUrl);
+    await sendBmpFromBytes(bmpData);
+  }
+
+  Future<void> sendBmpFromBytes(Uint8List bmpData) async {
     int initialSeq = 0;
     bool isSuccess = await Proto.sendHeartBeat();
     print("${DateTime.now()} testBMP -------startSendBeatHeart----isSuccess---$isSuccess------");
@@ -30,7 +34,7 @@ class FeaturesServices {
     if (successR) {
       print("${DateTime.now()} right ble success");
     } else {
-      print("${DateTime.now()} right ble success");
+      print("${DateTime.now()} right ble fail");
     }
   }
 

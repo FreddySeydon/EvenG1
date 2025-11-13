@@ -94,9 +94,8 @@ class SpeechStreamRecognizer {
         
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            //try audioSession.setCategory(.record)
-            try audioSession.setCategory(.playback, options: .mixWithOthers)
-            try audioSession.setActive(true)
+            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             print("Error setting up audio session: \(error)")
             return

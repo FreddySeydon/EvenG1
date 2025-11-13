@@ -60,15 +60,20 @@ class BluetoothManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
 
         guard let peripheralPair = pairedDevices[deviceName] else {
             result(FlutterError(code: "DeviceNotFound", message: "Device not found", details: nil))
+            channel.invokeMethod("glassesConnectionFailed", arguments: -1)
             return
         }
 
         guard let leftPeripheral = peripheralPair.0, let rightPeripheral = peripheralPair.1 else {
             result(FlutterError(code: "PeripheralNotFound", message: "One or both peripherals are not found", details: nil))
+            channel.invokeMethod("glassesConnectionFailed", arguments: -1)
             return
         }
 
         currentConnectingDeviceName = deviceName // Save the current device being connected
+        
+        // Notify Flutter that connection is starting
+        channel.invokeMethod("glassesConnecting", arguments: nil)
 
         centralManager.connect(leftPeripheral, options: [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true]) //   options nil
         centralManager.connect(rightPeripheral, options: [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true]) //   options nil
@@ -153,6 +158,17 @@ class BluetoothManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
         }
     }
     
+    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        print("\(Date()) didFailToConnect-----peripheral-----\(peripheral)--error----\(error?.localizedDescription ?? "unknown")")
+        
+        // Check if we're still trying to connect
+        if currentConnectingDeviceName != nil {
+            // Connection failed during connection attempt
+            channel.invokeMethod("glassesConnectionFailed", arguments: -1)
+            currentConnectingDeviceName = nil
+        }
+    }
+    
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?){
         print("\(Date()) didDisconnectPeripheral-----peripheral-----\(peripheral)--")
         
@@ -162,7 +178,13 @@ class BluetoothManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
             print("Disconnected without error.")
         }
         
-        central.connect(peripheral, options: nil)
+        // Only auto-reconnect if we're not in the middle of a connection attempt
+        if currentConnectingDeviceName == nil {
+            central.connect(peripheral, options: nil)
+        } else {
+            // If disconnecting during connection attempt, notify failure
+            channel.invokeMethod("glassesConnectionFailed", arguments: -1)
+        }
     }
     
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {

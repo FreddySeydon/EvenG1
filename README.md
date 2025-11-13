@@ -1,6 +1,97 @@
 
 # Even Demo
 
+> **Note**: This codebase is based on the original GitHub demo app from Even Realities and has been heavily modified.
+
+> **Warning**: All changes and code, including this readme.md have been generated/modifie using AI and definitely has bugs that have not been found yet.
+
+## Setup Instructions
+
+Before running the app, you need to configure the following API keys and credentials:
+
+1. **OpenRouter API Key**: Update `lib/services/api_services_openrouter.dart` line 11 with your OpenRouter API key. You can also change the model on line 22 if you would like to use a different model.
+
+2. **OpenWeatherMap API Key**: Update `lib/services/weather_service.dart` line 37 with an OpenWeatherMap API key.
+
+3. **Google Cloud Credentials**: Configure a Google Cloud credential JSON file for voice-to-text functionality on Android. Place the credentials file in `android/app/src/main/assets/google-cloud-credentials.json`.
+
+## Changes and Added Features
+
+This section documents all the major changes and new features that have been added to the original Even Realities demo app.
+
+### AI Integration Changes
+- **OpenRouter API Integration**: Replaced the original AI service with OpenRouter API integration (`lib/services/api_services_openrouter.dart`)
+  - Configurable AI model selection (default: meta-llama/llama-4-maverick:free)
+  - Customizable HTTP-Referer and X-Title headers for app attribution
+  - Chat completion API integration for Even AI responses
+
+### Weather Feature
+- **Weather Service** (`lib/services/weather_service.dart`): Complete weather functionality integration
+  - OpenWeatherMap API integration (One Call API 3.0)
+  - Real-time weather data based on device location
+  - Configurable location accuracy preferences (low, medium, high, best)
+  - Automatic city name detection via reverse geocoding
+  - Weather condition mapping to protocol icon IDs
+  - Background location support with last known position fallback
+  - Weather page UI (`lib/views/features/weather_page.dart`) for displaying and refreshing weather data
+
+### Notification System
+- **Notification Service** (`lib/services/notification_service.dart`): Comprehensive notification forwarding system
+  - Android notification listener service integration
+  - Automatic forwarding of notifications to glasses when connected
+  - App whitelist management for filtering which apps' notifications to forward
+  - Notification deduplication for call notifications (30-second window)
+  - Support for notification access permission (Android 13+)
+  - Notification history tracking and management
+  - Dashboard mode integration for displaying notifications on glasses
+  - Notification whitelist page (`lib/views/notification_whitelist_page.dart`) for managing allowed apps
+  - Notification page (`lib/views/features/notification/notification_page.dart`) for testing and viewing notifications
+
+### Pin Text Feature
+- **Pin Text Service** (`lib/services/pin_text_service.dart`):
+  - Create, edit, and delete text notes
+  - Pin/unpin notes for priority display
+  - Notes management UI (`lib/views/pin_text_page.dart`)
+  - Pin Text Controller (`lib/controllers/pin_text_controller.dart`) for state management
+
+### Display Settings
+- **Display Settings Page** (`lib/views/features/display_settings_page.dart`): Comprehensive display configuration
+  - Brightness control (0-42 levels) with auto-brightness option
+  - Head-up angle adjustment (0-66 degrees)
+  - Display height adjustment (0-8 levels)
+  - Display depth adjustment (1-9 levels)
+  - Display type selection (Full, Dual, Minimal)
+  - Settings persistence using SharedPreferences
+  - Automatic application of saved settings when glasses connect
+
+### Additional Improvements
+- **Enhanced Even AI Service** (`lib/services/evenai.dart`): Improved Even AI functionality
+  - Better integration with OpenRouter API
+  - Improved audio handling and processing
+  - Enhanced error handling and retry logic
+- **Features Page** (`lib/views/features_page.dart`): Centralized access to all app features
+  - Display Settings
+  - Pin Text
+  - Weather
+  - Upload Image
+- **Home Page Enhancements** (`lib/views/home_page.dart`):
+  - Notification permission checking and management
+  - Automatic notification service startup when glasses connect
+  - Dashboard mode activation on connection
+  - Display settings auto-application
+- **Controller Architecture**: Added GetX controllers for state management
+  - `EvenaiModelController`: Manages Even AI model state
+  - `PinTextController`: Manages Pin Text notes and dashboard mode
+  - `WeatherController`: Manages weather data and updates
+
+### Technical Changes
+- Integration of multiple third-party APIs (OpenRouter, OpenWeatherMap, Google Cloud Speech-to-Text)
+- Enhanced Bluetooth communication handling
+- Improved error handling and timeout management
+- Background service support for notifications
+- Persistent storage for user preferences and settings
+- Location services integration with multiple accuracy options
+
 ## Even AI
 The general process of the Even AI function is as follows: After the app and glasses are 
 connected via dual Bluetooth, long press the left-side TouchBar on the glasses to enter the 
@@ -53,7 +144,7 @@ maximum width is 488 pixels, with eac
 ### TouchBar Events
 #### Single Tap
  - 0xf5 0x01
- - When checking the dashboard, you can flip to the next QuickNote by tapping the right TouchBar. Or you can read the detail of your unread notifications by tapping the left TouchBar.
+ - When checking the dashboard, you can flip to the next Pin Text by tapping the right TouchBar. Or you can read the detail of your unread notifications by tapping the left TouchBar.
  - In the teleprompting or evenai features, forward/back the page by tapping the right/left TouchBar.
 
 #### Double Tap

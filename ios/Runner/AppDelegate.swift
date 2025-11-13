@@ -54,6 +54,23 @@ import Flutter
             case "stopEvenAI":
                 SpeechStreamRecognizer.shared.stopRecognition()
                 result(nil)
+            case "checkNotificationPermission":
+                // iOS doesn't support notification listener service like Android
+                // Full notification interception requires Notification Service Extension
+                result(false)
+            case "openNotificationSettings":
+                // Open iOS notification settings
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+                result(nil)
+            case "getInstalledApps":
+                // iOS doesn't allow querying all installed apps for privacy reasons
+                // Return empty list or apps we can query (requires special entitlements)
+                result([])
+            case "glassesConnectionFailed":
+                // Handle connection failure if needed
+                break
             default:
                 result(FlutterMethodNotImplemented)
             }
@@ -64,6 +81,13 @@ import Flutter
         
         let eventSpeechRecognizeEvent = FlutterEventChannel(name: "eventSpeechRecognize", binaryMessenger: messenger)
         eventSpeechRecognizeEvent.setStreamHandler(self)
+        
+        // Notification event channels (iOS doesn't support full notification interception)
+        let eventNotificationReceived = FlutterEventChannel(name: "eventNotificationReceived", binaryMessenger: messenger)
+        eventNotificationReceived.setStreamHandler(self)
+        
+        let eventNotificationListenerStatus = FlutterEventChannel(name: "eventNotificationListenerStatus", binaryMessenger: messenger)
+        eventNotificationListenerStatus.setStreamHandler(self)
 
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
@@ -79,6 +103,12 @@ extension AppDelegate : FlutterStreamHandler {
             self.blueInstance.blueInfoSink = events
         } else if (arguments as? String == "eventSpeechRecognize") {
             BluetoothManager.shared.blueSpeechSink = events
+        } else if (arguments as? String == "eventNotificationReceived") {
+            // iOS: Notification interception not supported without Notification Service Extension
+            // Events will not be sent
+        } else if (arguments as? String == "eventNotificationListenerStatus") {
+            // iOS: Always report as disabled since we don't support it
+            events(false)
         } else {
             // TODO
         }

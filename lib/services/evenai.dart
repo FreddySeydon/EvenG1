@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/controllers/evenai_model_controller.dart';
-import 'package:demo_ai_even/services/api_services_deepseek.dart';
+import 'package:demo_ai_even/services/api_services_openrouter.dart';
 import 'package:demo_ai_even/services/proto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -56,6 +56,7 @@ class EvenAI {
       const EventChannel(_eventSpeechRecognize).receiveBroadcastStream(_eventSpeechRecognize);
 
   String combinedText = '';
+  StreamSubscription? _speechSubscription;
 
   static final StreamController<String> _textStreamController = StreamController<String>.broadcast();
   static Stream<String> get textStream => _textStreamController.stream;
@@ -67,13 +68,28 @@ class EvenAI {
   EvenAI._(); 
 
   void startListening() {
+    // Cancel previous subscription if exists
+    _speechSubscription?.cancel();
+    
+    // Always clear combinedText when starting to listen for a new recording
+    // This ensures we start fresh for each recording session
     combinedText = '';
-    _eventSpeechRecognizeChannel.listen((event) {
-      var txt = event["script"] as String;
-      combinedText = txt;
+    print("${DateTime.now()} EvenAI: Starting to listen, cleared combinedText");
+    
+    _speechSubscription = _eventSpeechRecognizeChannel.listen((event) {
+      var txt = event["script"] as String? ?? '';
+      print("${DateTime.now()} EvenAI: Event received - script: '$txt' (isEmpty: ${txt.isEmpty})");
+      if (txt.isNotEmpty && txt.trim().isNotEmpty) {
+        combinedText = txt.trim();
+        print("${DateTime.now()} EvenAI: Received transcription and set combinedText: '$combinedText'");
+      } else {
+        print("${DateTime.now()} EvenAI: Received empty or whitespace-only transcription");
+      }
     }, onError: (error) {
-      print("Error in event: $error");
+      print("${DateTime.now()} EvenAI: Error in event: $error");
     });
+    
+    print("${DateTime.now()} EvenAI: Event listener set up, waiting for transcription...");
   }
 
   // receiving starting Even AI request from ble
@@ -81,6 +97,10 @@ class EvenAI {
     // restart to avoid ble data conflict
     BleManager.get().startSendBeatHeart();
 
+    // Clear combinedText before starting new recording
+    combinedText = '';
+    
+    // Set up listener BEFORE starting recording
     startListening(); 
     
     // avoid duplicate ble command in short time, especially android
@@ -128,32 +148,95 @@ class EvenAI {
     }
     _lastStopTime = currentTime;
 
+    // Stop receiving audio but keep listener active to receive transcription
     isReceivingAudio = false;
     _recordingTimer?.cancel();
     _recordingTimer = null;
 
+    // Make sure listener is still active before stopping
+    if (_speechSubscription == null) {
+      print("recordOverByOS----WARNING: Speech listener is null, setting it up now");
+      startListening();
+    }
+    
     await BleManager.invokeMethod("stopEvenAI");
-    await Future.delayed(Duration(seconds: 2)); // todo
+    
+    // Wait for transcription result from Google Cloud Speech-to-Text
+    // Google Cloud sends results asynchronously in stopRecognition(), so we need to wait
+    print("recordOverByOS----Waiting for transcription result... (current combinedText: '$combinedText')");
+    int waitAttempts = 0;
+    const maxWaitAttempts = 60; // Wait up to 6 seconds (60 * 100ms) - increased for reliability
+    while (combinedText.isEmpty && waitAttempts < maxWaitAttempts) {
+      await Future.delayed(Duration(milliseconds: 100));
+      waitAttempts++;
+      if (waitAttempts % 10 == 0) {
+        print("recordOverByOS----Still waiting... (attempt $waitAttempts/$maxWaitAttempts, combinedText: '$combinedText')");
+      }
+    }
 
-    print("recordOverByOS----startSendReply---pre------combinedText-------*$combinedText*---");
+    print("recordOverByOS----startSendReply---pre------combinedText-------*$combinedText*--- (waited ${waitAttempts * 100}ms)");
+
+    // Now we can clear the listener since we've received the transcription (or timeout)
+    _speechSubscription?.cancel();
+    _speechSubscription = null;
 
     if (combinedText.isEmpty) {
-      
+      print("recordOverByOS----No transcription received after waiting");
       updateDynamicText("No Speech Recognized");
       isEvenAISyncing.value = false;
-      startSendReply("No Speech Recognized");
+      // Keep isRunning = true to allow sending the message
+      // It will be set to false when user exits Even AI mode
+      await startSendReply("No Speech Recognized");
       return;
     }
 
-    final apiService = ApiDeepSeekService();
-    String answer = await apiService.sendChatRequest(combinedText);
-  
-    print("recordOverByOS----startSendReply---combinedText-------*$combinedText*-----answer----$answer----");
+    // We have transcription - now process it
+    try {
+      // First, send the transcribed text to glasses immediately
+      print("recordOverByOS----Sending transcribed text to glasses: '$combinedText'");
+      await startSendReply(combinedText);
+      updateDynamicText(combinedText);
+      
+      // Wait a bit for the text to be displayed before sending AI request
+      await Future.delayed(Duration(milliseconds: 500));
 
-    updateDynamicText("$combinedText\n\n$answer");
-    isEvenAISyncing.value = false;
-    saveQuestionItem(combinedText, answer);
-    startSendReply(answer);
+      // Then send to AI and wait for response
+      print("recordOverByOS----Sending to AI for response: '$combinedText'");
+      final apiService = ApiOpenRouterService();
+      String answer = '';
+      
+      try {
+        answer = await apiService.sendChatRequest(combinedText);
+        print("recordOverByOS----AI response received: '$answer'");
+      } catch (e) {
+        print("recordOverByOS----Error getting AI response: $e");
+        answer = "Error getting AI response: $e";
+      }
+  
+      print("recordOverByOS----Complete flow - transcription: '$combinedText' - AI answer: '$answer'");
+
+      // Clear any ongoing text sending before sending AI response
+      _timer?.cancel();
+      _timer = null;
+      
+      // Send AI response to glasses
+      print("recordOverByOS----Sending AI response to glasses: '$answer'");
+      try {
+        await startSendReply(answer);
+        print("recordOverByOS----AI response sent to glasses successfully");
+      } catch (e) {
+        print("recordOverByOS----Error sending AI response to glasses: $e");
+      }
+      
+      updateDynamicText("$combinedText\n\n$answer");
+      saveQuestionItem(combinedText, answer);
+    } catch (e) {
+      print("recordOverByOS----Error in processing flow: $e");
+    } finally {
+      isEvenAISyncing.value = false;
+      // Keep isRunning = true to allow manual paging through the AI response
+      // It will be set to false when user exits Even AI mode (double tap) or via stopEvenAIByOS()
+    }
   }
 
   void saveQuestionItem(String title, String content) {
@@ -218,7 +301,7 @@ class EvenAI {
       startScreenWords = headString + startScreenWords;
 
       // The glasses need to have 0x30 before they can process 0x40
-      bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
+      await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
       
       // Send 0x40 after 3 seconds
       await Future.delayed(Duration(seconds: 3));
@@ -226,7 +309,7 @@ class EvenAI {
       if (_isManual) {
         return;
       }
-      isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
+      await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
       return;
     }
     if (list.length == 4) {
@@ -236,12 +319,12 @@ class EvenAI {
       startScreenWords = headString + startScreenWords;
 
       // // The glasses need to have 0x30 before they can process 0x40
-      bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
+      await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
       await Future.delayed(Duration(seconds: 3));
       if (_isManual) {
         return;
       }
-      isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
+      await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
       return;
     }
 
@@ -249,12 +332,12 @@ class EvenAI {
       String startScreenWords =
           list.sublist(0, 5).map((str) => '$str\n').join();
       // // The glasses need to have 0x30 before they can process 0x40
-      bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
+      await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
       await Future.delayed(Duration(seconds: 3));
       if (_isManual) {
         return;
       }
-      isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
+      await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
       return;
     }
 
@@ -282,39 +365,48 @@ class EvenAI {
         return;
       }
 
-      _currentLine = min(_currentLine + 5, list.length - 1);
-      sendReplys = list.sublist(_currentLine);
-
-      if (_currentLine > list.length - 1) {
+      // Calculate next starting line position
+      int nextLine = _currentLine + 5;
+      
+      // Check if we've sent all lines
+      if (nextLine >= list.length) {
         _timer?.cancel();
         _timer = null;
-      } else {
-        if (sendReplys.length < 4) {
-          var mergedStr = sendReplys
-              .sublist(0, sendReplys.length)
-              .map((str) => '$str\n')
-              .join();
+        return;
+      }
+      
+      // Update to next position and get remaining lines
+      _currentLine = nextLine;
+      sendReplys = list.sublist(_currentLine);
 
-          if (_currentLine >= list.length - 5) {
-            await sendEvenAIReply(mergedStr, 0x01, 0x40, 0);
-            _timer?.cancel();
-            _timer = null;
-          } else {
-            await sendEvenAIReply(mergedStr, 0x01, 0x30, 0);
-          }
+      // Determine if this is the last page (if next increment would reach or exceed end)
+      bool isLastPage = (_currentLine + 5 >= list.length) || sendReplys.length <= 5;
+        
+      if (sendReplys.length < 4) {
+        var mergedStr = sendReplys
+            .sublist(0, sendReplys.length)
+            .map((str) => '$str\n')
+            .join();
+
+        if (isLastPage) {
+          await sendEvenAIReply(mergedStr, 0x01, 0x40, 0);
+          _timer?.cancel();
+          _timer = null;
         } else {
-          var mergedStr = sendReplys
-              .sublist(0, min(5, sendReplys.length))
-              .map((str) => '$str\n')
-              .join();
+          await sendEvenAIReply(mergedStr, 0x01, 0x30, 0);
+        }
+      } else {
+        var mergedStr = sendReplys
+            .sublist(0, min(5, sendReplys.length))
+            .map((str) => '$str\n')
+            .join();
 
-          if (_currentLine >= list.length - 5) {
-            await sendEvenAIReply(mergedStr, 0x01, 0x40, 0);
-            _timer?.cancel();
-            _timer = null;
-          } else {
-            await sendEvenAIReply(mergedStr, 0x01, 0x30, 0);
-          }
+        if (isLastPage) {
+          await sendEvenAIReply(mergedStr, 0x01, 0x40, 0);
+          _timer?.cancel();
+          _timer = null;
+        } else {
+          await sendEvenAIReply(mergedStr, 0x01, 0x30, 0);
         }
       }
     });
@@ -353,7 +445,7 @@ class EvenAI {
     }
 
     if (_currentLine - 5 < 0) {
-      _currentLine == 0;
+      _currentLine = 0;
     } else {
       _currentLine -= 5;
     }
@@ -426,6 +518,8 @@ class EvenAI {
     _recordingTimer = null;
     _timer?.cancel();
     _timer = null;
+    _speechSubscription?.cancel();
+    _speechSubscription = null;
     audioDataBuffer.clear();
     audioDataBuffer = [];
     audioData = null;
@@ -433,6 +527,8 @@ class EvenAI {
     sendReplys = [];
     durationS = 0;
     retryCount = 0;
+    // Don't clear combinedText here - it might contain the transcription we just received
+    // combinedText = '';
   }
 
   Future openEvenAIMic() async {

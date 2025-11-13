@@ -18,6 +18,7 @@ import android.widget.Toast
 import com.example.demo_ai_even.cpp.Cpp
 import com.example.demo_ai_even.model.BleDevice
 import com.example.demo_ai_even.model.BlePairDevice
+import com.example.demo_ai_even.speech.SpeechRecognitionManager
 import com.example.demo_ai_even.utils.ByteUtil
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,9 @@ class BleManager private constructor() {
         private const val SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
         private const val WRITE_CHARACTERISTIC_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
         private const val READ_CHARACTERISTIC_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+        
+        // Heartbeat constants
+        private const val HEARTBEAT_INTERVAL_MS = 15000L // 15 seconds
 
         //  SingleInstance
         private var mInstance: BleManager? = null
@@ -61,20 +65,32 @@ class BleManager private constructor() {
     private val scanCallback: ScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             super.onScanResult(callbackType, result)
-            val device = result?.device
+            val device = result?.device ?: return
+            
             //  eg. G1_45_L_92333
-            if (device == null ||
-                device.name.isNullOrEmpty() ||
-                !device.name.contains("G\\d+".toRegex()) ||
-                device.name.split("_").size != 4 ||
-                bleDevices.firstOrNull { it.address == device.address } != null) {
+            if (device.name.isNullOrEmpty()) {
                 return
             }
-            Log.i(LOG_TAG, "ScanCallback - Result: CallbackType = $callbackType, DeviceName = ${device.name}")
+            
+            if (!device.name.contains("G\\d+".toRegex())) {
+                return
+            }
+            
+            val nameParts = device.name.split("_")
+            if (nameParts.size != 4) {
+                return
+            }
+            
+            if (bleDevices.firstOrNull { it.address == device.address } != null) {
+                return
+            }
+            
             //  1. Get same channel num device,and make pair
             val channelNum = device.name.split("_")[1]
             bleDevices.add(BleDevice.createByDevice(device.name, device.address, channelNum))
+            
             val pairDevices = bleDevices.filter { it.name.contains("_$channelNum" + "_") }
+            
             if (pairDevices.size <= 1) {
                 return
             }
@@ -87,7 +103,7 @@ class BleManager private constructor() {
         }
         override fun onScanFailed(errorCode: Int) {
             super.onScanFailed(errorCode)
-            Log.e(LOG_TAG, "ScanCallback - Failed: ErrorCode = $errorCode")
+            Log.e(LOG_TAG, "Scan failed: $errorCode")
         }
     }
 
@@ -117,13 +133,17 @@ class BleManager private constructor() {
      */
     fun startScan(result: MethodChannel.Result) {
         if (!checkBluetoothStatus()) {
-            result.error("Permission", "", null)
+            result.error("Permission", "Bluetooth not enabled or permissions not granted", null)
             return
         }
         bleDevices.clear()
-        bluetoothAdapter.bluetoothLeScanner.startScan(null, scanSettings, scanCallback)
-        Log.v(LOG_TAG, "Start scan")
-        result.success("Scanning for devices...")
+        try {
+            bluetoothAdapter.bluetoothLeScanner.startScan(null, scanSettings, scanCallback)
+            result.success("Scanning for devices...")
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to start scan: ${e.message}", e)
+            result.error("ScanError", "Failed to start scan: ${e.message}", null)
+        }
     }
 
     /**
@@ -156,10 +176,15 @@ class BleManager private constructor() {
         }
         if (leftDevice == null || rightDevice == null) {
             result.error("PeripheralNotFound", "One or both peripherals are not found", null)
+            // Notify Flutter about connection failure
+            BleChannelHelper.bleMC.flutterGlassesConnectionFailed(-1)
             return
         }
         connectedDevice = BlePairDevice(leftDevice, rightDevice)
         weakActivity.get()?.let {
+            // Notify Flutter that connection is starting
+            BleChannelHelper.bleMC.flutterGlassesConnecting(emptyMap())
+            
             bluetoothAdapter.getRemoteDevice(leftDevice.address).connectGatt(it, false, bleGattCallBack())
             bluetoothAdapter.getRemoteDevice(rightDevice.address).connectGatt(it, false, bleGattCallBack())
         }
@@ -172,6 +197,116 @@ class BleManager private constructor() {
     fun disconnectFromGlasses(result: MethodChannel.Result) {
         Log.i(LOG_TAG, "connectToGlass: G1_${connectedDevice?.deviceName()}")
         result.success("Disconnected all devices.")
+    }
+
+    /**
+     * Check if BLE devices are currently connected
+     * @return true if both left and right devices are connected, false otherwise
+     */
+    fun isBleConnected(): Boolean {
+        val device = connectedDevice ?: return false
+        // Check both that the flag is set AND that the GATT connection is actually active
+        val leftGatt = device.leftDevice?.gatt
+        val rightGatt = device.rightDevice?.gatt
+        val leftConnected = device.leftDevice?.isConnect == true && 
+                            leftGatt != null
+        val rightConnected = device.rightDevice?.isConnect == true && 
+                             rightGatt != null
+        return leftConnected && rightConnected
+    }
+
+    /**
+     * Send heartbeat data to both left and right devices
+     * This is used by the foreground service to maintain connection in background
+     * @param data The heartbeat packet data
+     * @return true if both devices sent successfully, false otherwise
+     */
+    fun sendHeartbeatData(data: ByteArray): Boolean {
+        if (!isBleConnected()) {
+            Log.w(LOG_TAG, "sendHeartbeatData: Devices not connected, skipping")
+            return false
+        }
+        try {
+            val leftResult = connectedDevice?.leftDevice?.sendData(data) ?: false
+            val rightResult = connectedDevice?.rightDevice?.sendData(data) ?: false
+            
+            if (leftResult && rightResult) {
+                Log.v(LOG_TAG, "Heartbeat data sent successfully to both devices")
+                return true
+            } else {
+                Log.w(LOG_TAG, "Heartbeat send failed - Left: $leftResult, Right: $rightResult")
+                return false
+            }
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Error sending heartbeat data", e)
+            return false
+        }
+    }
+    
+    /**
+     * Reconnect to devices using saved channel number
+     * This is called by the service to attempt automatic reconnection
+     * @param channelNumber The channel number to reconnect to
+     * @return true if reconnection was initiated successfully, false otherwise
+     */
+    fun reconnectToChannel(channelNumber: String): Boolean {
+        Log.i(LOG_TAG, "Attempting to reconnect to channel: $channelNumber")
+        
+        if (!checkBluetoothStatus()) {
+            Log.w(LOG_TAG, "Cannot reconnect: Bluetooth not available")
+            return false
+        }
+        
+        // Check if already connected to this channel
+        val currentChannel = connectedDevice?.leftDevice?.channelNumber
+        if (currentChannel == channelNumber && isBleConnected()) {
+            Log.i(LOG_TAG, "Already connected to channel $channelNumber")
+            return true
+        }
+        
+        // Clear existing connection if any
+        connectedDevice?.let {
+            it.leftDevice?.gatt?.disconnect()
+            it.rightDevice?.gatt?.disconnect()
+            it.leftDevice?.gatt?.close()
+            it.rightDevice?.gatt?.close()
+        }
+        connectedDevice = null
+        bleDevices.clear()
+        
+        // Start scan and connect
+        try {
+            // Start scan to find devices
+            bluetoothAdapter.bluetoothLeScanner.startScan(null, scanSettings, scanCallback)
+            
+            // Use a coroutine to wait a bit for devices to be found, then connect
+            mainScope.launch {
+                kotlinx.coroutines.delay(2000) // Wait 2 seconds for scan
+                stopScan()
+                
+                // Try to connect
+                val leftPairChannel = "_$channelNumber" + "_L_"
+                val rightPairChannel = "_$channelNumber" + "_R_"
+                val leftDevice = bleDevices.firstOrNull { it.name.contains(leftPairChannel) }
+                val rightDevice = bleDevices.firstOrNull { it.name.contains(rightPairChannel) }
+                
+                if (leftDevice != null && rightDevice != null) {
+                    connectedDevice = BlePairDevice(leftDevice, rightDevice)
+                    weakActivity.get()?.let { activity ->
+                        bluetoothAdapter.getRemoteDevice(leftDevice.address).connectGatt(activity, false, bleGattCallBack())
+                        bluetoothAdapter.getRemoteDevice(rightDevice.address).connectGatt(activity, false, bleGattCallBack())
+                        Log.i(LOG_TAG, "Reconnection initiated for channel $channelNumber")
+                    }
+                } else {
+                    Log.w(LOG_TAG, "Could not find devices for channel $channelNumber")
+                }
+            }
+            
+            return true
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Error during reconnection: ${e.message}", e)
+            return false
+        }
     }
 
     /**
@@ -204,10 +339,7 @@ class BleManager private constructor() {
             Toast.makeText(weakActivity.get()!!, "Bluetooth is turned off, please turn it on first!", Toast.LENGTH_SHORT).show()
             return false
         }
-        if (!BlePermissionUtil.checkBluetoothPermission(weakActivity.get()!!)) {
-            return false
-        }
-        return true
+        return BlePermissionUtil.checkBluetoothPermission(weakActivity.get()!!)
     }
 
     /**
@@ -217,8 +349,47 @@ class BleManager private constructor() {
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
             super.onConnectionStateChange(gatt, status, newState)
             if (newState == BluetoothGatt.STATE_CONNECTED) {
-                gatt?.discoverServices()
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    gatt?.discoverServices()
+                } else {
+                    // Connection failed
+                    Log.e(LOG_TAG, "Connection failed with status: $status")
+                    weakActivity.get()?.runOnUiThread {
+                        BleChannelHelper.bleMC.flutterGlassesConnectionFailed(status)
+                    }
+                }
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                // Handle disconnection
+                Log.d(LOG_TAG, "Device disconnected: ${gatt?.device?.address}, status: $status")
+                
+                // Update device connection state
+                connectedDevice?.let { device ->
+                    if (gatt?.device?.address == device.leftDevice?.address) {
+                        device.update(isLeftConnect = false)
+                        Log.d(LOG_TAG, "Left device marked as disconnected")
+                    } else if (gatt?.device?.address == device.rightDevice?.address) {
+                        device.update(isRightConnected = false)
+                        Log.d(LOG_TAG, "Right device marked as disconnected")
+                    }
+                }
+                
+                if (status != BluetoothGatt.GATT_SUCCESS && connectedDevice != null) {
+                    // Connection failed during connection attempt
+                    weakActivity.get()?.runOnUiThread {
+                        BleChannelHelper.bleMC.flutterGlassesConnectionFailed(status)
+                    }
+                } else {
+                    // Normal disconnection - check if both devices are disconnected
+                    val isBothDisconnected = connectedDevice?.isBothConnected() != true
+                    if (isBothDisconnected) {
+                        Log.d(LOG_TAG, "Both devices disconnected, notifying Flutter")
+                        weakActivity.get()?.runOnUiThread {
+                            BleChannelHelper.bleMC.flutterGlassesDisconnected(emptyMap())
+                        }
+                    } else {
+                        Log.d(LOG_TAG, "One device disconnected, but connection still active")
+                    }
+                }
             }
         }
 
@@ -289,6 +460,32 @@ class BleManager private constructor() {
                     }
                     requestData(byteArrayOf(0xf4.toByte(), 0x01.toByte()))
                     if (it.isBothConnected()) {
+                        // Save connection state to service
+                        try {
+                            val service = com.example.demo_ai_even.notification.NotificationForwardingService
+                            val leftName = it.leftDevice?.name ?: ""
+                            val rightName = it.rightDevice?.name ?: ""
+                            val channel = it.leftDevice?.channelNumber ?: ""
+                            if (leftName.isNotEmpty() && rightName.isNotEmpty() && channel.isNotEmpty()) {
+                                // We need to call saveConnectionState, but it's an instance method
+                                // So we'll save it via a static method or save to SharedPreferences directly
+                                val prefs = weakActivity.get()?.getSharedPreferences(
+                                    "even_ai_service_state",
+                                    android.content.Context.MODE_PRIVATE
+                                )
+                                prefs?.edit()?.apply {
+                                    putString("left_device_name", leftName)
+                                    putString("right_device_name", rightName)
+                                    putString("channel_number", channel)
+                                    putLong("connection_timestamp", System.currentTimeMillis())
+                                    apply()
+                                }
+                                Log.d(LOG_TAG, "Connection state saved: $leftName / $rightName (channel: $channel)")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(LOG_TAG, "Could not save connection state: ${e.message}")
+                        }
+                        
                         weakActivity.get()?.runOnUiThread {
                             BleChannelHelper.bleMC.flutterGlassesConnected(it.toConnectedJson())
                         }
@@ -321,9 +518,15 @@ class BleManager private constructor() {
                     val lc3 = value.copyOfRange(2, 202)
                     val pcmData = Cpp.decodeLC3(lc3)!!//200
 
-                    // TODO 
-                    // to implement the pcmData for asr in AI answer
-                    Log.d(this::class.simpleName,"============Lc3 data = $lc3, Pcm = $pcmData")
+                    // Pass PCM data to SpeechRecognitionManager
+                    // This will use Google Cloud Speech-to-Text if credentials are available,
+                    // otherwise falls back to Android SpeechRecognizer (phone mic only)
+                    SpeechRecognitionManager.instance.appendPCMData(pcmData)
+                    
+                    // Only log if recognition is active - don't spam logs after recognition is done
+                    if (com.example.demo_ai_even.speech.SpeechRecognitionManager.instance.isRecognitionActive()) {
+                        Log.d(this::class.simpleName,"============Lc3 data = $lc3, Pcm = $pcmData")
+                    }
                 }
                 BleChannelHelper.bleReceive(mapOf(
                     "lr" to if (isLeft)  "L" else "R",
