@@ -6,6 +6,7 @@ import '../ble_manager.dart';
 import '../controllers/time_notes_controller.dart';
 import '../models/time_note.dart';
 import 'dashboard_note_service.dart';
+import 'proto.dart';
 
 /// Background helper that watches active time-aware notes and automatically
 /// sends the current one to the G1 dashboard when its window starts.
@@ -46,6 +47,12 @@ class TimeNotesScheduler extends GetxService {
         _lastActiveNoteId = null;
         _lastSent.removeWhere((_, __) => true);
       }
+      // Align both arms to the same dashboard layout and refresh time/weather as a baseline.
+      await Proto.setDashboardMode(modeId: 1); // Dual layout to keep both eyes consistent
+      await Proto.setTimeAndWeather(
+        weatherIconId: 0x00,
+        temperature: 0, // neutral temp; caller can update via WeatherController elsewhere
+      );
       return;
     }
 
@@ -53,6 +60,9 @@ class TimeNotesScheduler extends GetxService {
     final note = actives.first;
     if (!_shouldSend(note, now)) return;
     if (!BleManager.get().isConnected) return;
+
+    // Ensure consistent dual dashboard layout before pushing the quick note.
+    await Proto.setDashboardMode(modeId: 1);
 
     final success = await DashboardNoteService.instance.sendDashboardNote(
       title: note.title.isEmpty ? 'Note' : note.title,
