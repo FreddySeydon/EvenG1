@@ -3,8 +3,11 @@ import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/controllers/evenai_model_controller.dart';
 import 'package:demo_ai_even/controllers/pin_text_controller.dart';
 import 'package:demo_ai_even/controllers/weather_controller.dart';
+import 'package:demo_ai_even/controllers/addon_controller.dart';
+import 'package:demo_ai_even/controllers/time_notes_controller.dart';
 import 'package:demo_ai_even/services/notification_service.dart';
 import 'package:demo_ai_even/services/pin_text_voice_service.dart';
+import 'package:demo_ai_even/services/time_notes_scheduler.dart';
 import 'package:demo_ai_even/views/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -17,6 +20,9 @@ void main() async {
   Get.put(EvenaiModelController());
   Get.put(PinTextController());
   Get.put(WeatherController());
+  Get.put(AddonController());
+  Get.put(TimeNotesController());
+  Get.put(TimeNotesScheduler());
   
   // Initialize notification service
   await _initializeNotificationService();

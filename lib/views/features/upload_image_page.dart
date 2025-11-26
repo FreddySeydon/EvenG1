@@ -23,6 +23,7 @@ class _UploadImageState extends State<UploadImagePage> {
   bool _isConverting = false;
   bool _isSending = false;
   double _threshold = 0.5;
+  double _scale = 1.0; // 1.0 = full size, <1.0 = scaled down
   int _scrollPosition = 0; // Vertical scroll position in pixels
   int _fullImageHeight = 0; // Full image height after scaling to 576 width
   String _sizeStatus = '';
@@ -54,7 +55,7 @@ class _UploadImageState extends State<UploadImagePage> {
       _showToast('Image fits in one screen, no scrolling needed');
       return;
     }
-    
+
     setState(() {
       _waitingForTouchpad = true;
       _touchpadInstructions = 'Touchpad scrolling enabled!\n'
@@ -88,6 +89,7 @@ class _UploadImageState extends State<UploadImagePage> {
           _fullImageBmp = null;
           _currentWindowBmp = null;
           _scrollPosition = 0;
+          _scale = 1.0;
           _fullImageHeight = 0;
           _sizeStatus = '';
           _waitingForTouchpad = false;
@@ -113,6 +115,7 @@ class _UploadImageState extends State<UploadImagePage> {
           _fullImageBmp = null;
           _currentWindowBmp = null;
           _scrollPosition = 0;
+          _scale = 1.0;
           _fullImageHeight = 0;
           _sizeStatus = '';
           _waitingForTouchpad = false;
@@ -136,12 +139,13 @@ class _UploadImageState extends State<UploadImagePage> {
     try {
       // Read image file
       final imageBytes = await _pickedImage!.readAsBytes();
-      
+
       // Convert to full-height BMP (576 width, maintain aspect ratio)
       final result = await Utils.convertImageBytesToFullHeightBmp(
         imageBytes,
         targetWidth: 576,
         threshold: _threshold,
+        scale: _scale,
       );
 
       if (result != null) {
@@ -150,7 +154,8 @@ class _UploadImageState extends State<UploadImagePage> {
           _fullImageHeight = result['height'];
           _scrollPosition = 0; // Reset scroll to top
           _isConverting = false;
-          _sizeStatus = 'Image converted to 576x$_fullImageHeight (1-bit BMP)\nScroll to view different parts';
+          _sizeStatus =
+              'Image converted to 576x$_fullImageHeight (1-bit BMP)\nScroll to view different parts';
         });
         _updateCurrentWindow();
       } else {
@@ -172,6 +177,17 @@ class _UploadImageState extends State<UploadImagePage> {
   void _updateCurrentWindow() {
     if (_fullImageBmp == null || _fullImageHeight == 0) return;
 
+    // If the full image height is <= 136, we can just use the full BMP
+    // directly without extracting a window.
+    if (_fullImageHeight <= 136) {
+      setState(() {
+        _currentWindowBmp = _fullImageBmp;
+        _sizeStatus =
+            'Image: 576x$_fullImageHeight (scaled, 1-bit BMP)\nNo scrolling needed';
+      });
+      return;
+    }
+
     // Extract a 136-pixel-high window from the full image
     // Clamp scroll position to valid range
     final maxScroll = (_fullImageHeight - 136).clamp(0, _fullImageHeight);
@@ -189,7 +205,8 @@ class _UploadImageState extends State<UploadImagePage> {
     setState(() {
       // Update status
       if (_fullImageHeight > 136) {
-        _sizeStatus = 'Image: 576x$_fullImageHeight | Viewing: ${_scrollPosition}-${_scrollPosition + 136}px';
+        _sizeStatus =
+            'Image: 576x$_fullImageHeight | Viewing: ${_scrollPosition}-${_scrollPosition + 136}px';
       } else {
         _sizeStatus = 'Image: 576x$_fullImageHeight (1-bit BMP)';
       }
@@ -295,22 +312,26 @@ class _UploadImageState extends State<UploadImagePage> {
   }
 
   void _handleTouchpadTap(String lr) {
-    if (!_waitingForTouchpad || _fullImageBmp == null || _fullImageHeight <= 136) {
+    if (!_waitingForTouchpad ||
+        _fullImageBmp == null ||
+        _fullImageHeight <= 136) {
       // If not waiting for touchpad or image doesn't need scrolling, ignore
       return;
     }
 
     setState(() {
       const scrollStep = 20; // Pixels to scroll per tap
-      
+
       if (lr == 'L') {
         // Scroll up (decrease scroll position)
-        _scrollPosition = (_scrollPosition - scrollStep).clamp(0, _fullImageHeight - 136);
+        _scrollPosition =
+            (_scrollPosition - scrollStep).clamp(0, _fullImageHeight - 136);
       } else if (lr == 'R') {
         // Scroll down (increase scroll position)
-        _scrollPosition = (_scrollPosition + scrollStep).clamp(0, _fullImageHeight - 136);
+        _scrollPosition =
+            (_scrollPosition + scrollStep).clamp(0, _fullImageHeight - 136);
       }
-      
+
       _touchpadInstructions = 'Scrolling...\n'
           'Position: $_scrollPosition / ${_fullImageHeight - 136}px\n'
           'LEFT: Up | RIGHT: Down';
@@ -410,7 +431,8 @@ class _UploadImageState extends State<UploadImagePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Grayscale Threshold: ${(_threshold * 100).toStringAsFixed(0)}%'),
+                          Text(
+                              'Grayscale Threshold: ${(_threshold * 100).toStringAsFixed(0)}%'),
                           const Text(
                             'Adjust the threshold for better contrast',
                             style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -427,15 +449,49 @@ class _UploadImageState extends State<UploadImagePage> {
                 const SizedBox(height: 16),
               ],
 
+              // Scale adjustment
+              if (_pickedImage != null && !_isConverting) ...[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Scale: ${(_scale * 100).toStringAsFixed(0)}%'),
+                    const Text(
+                      'Scale down the image before sending (preview below updates accordingly)',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    Slider(
+                      value: _scale,
+                      min: 0.2,
+                      max: 1.0,
+                      divisions: 8,
+                      label: '${(_scale * 100).toStringAsFixed(0)}%',
+                      onChanged: (value) {
+                        setState(() {
+                          _scale = value;
+                        });
+                      },
+                      onChangeEnd: (value) {
+                        // Re-convert image with new scale to update preview
+                        _convertImage();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // Scroll controls (only if image is taller than 136px)
-              if (_pickedImage != null && _fullImageHeight > 136 && !_isConverting) ...[
+              if (_pickedImage != null &&
+                  _fullImageHeight > 136 &&
+                  !_isConverting) ...[
                 Row(
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Scroll Position: $_scrollPosition / ${_fullImageHeight - 136}px'),
+                          Text(
+                              'Scroll Position: $_scrollPosition / ${_fullImageHeight - 136}px'),
                           const Text(
                             'Use touchpads to scroll through the image',
                             style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -446,9 +502,12 @@ class _UploadImageState extends State<UploadImagePage> {
                     ElevatedButton(
                       onPressed: _enableTouchpadMode,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _waitingForTouchpad ? Colors.green : null,
+                        backgroundColor:
+                            _waitingForTouchpad ? Colors.green : null,
                       ),
-                      child: Text(_waitingForTouchpad ? 'Scrolling Active' : 'Enable Scrolling'),
+                      child: Text(_waitingForTouchpad
+                          ? 'Scrolling Active'
+                          : 'Enable Scrolling'),
                     ),
                   ],
                 ),
@@ -563,10 +622,11 @@ class _UploadImageState extends State<UploadImagePage> {
                       '1. Pick an image from gallery or take a photo\n'
                       '2. Image will be scaled to 576px width (maintains aspect ratio)\n'
                       '3. Adjust grayscale threshold using the slider for better contrast\n'
-                      '4. If image is taller than 136px, enable scrolling:\n'
+                      '4. Optionally scale the image down before sending using the Scale slider\n'
+                      '5. If image is taller than 136px, enable scrolling:\n'
                       '   - LEFT touchpad: Scroll up (view higher parts)\n'
                       '   - RIGHT touchpad: Scroll down (view lower parts)\n'
-                      '5. Tap "Send to Glasses" to transmit the current view',
+                      '6. Tap "Send to Glasses" to transmit the current view',
                       style: TextStyle(fontSize: 12),
                     ),
                   ],

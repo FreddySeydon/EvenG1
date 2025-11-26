@@ -10,6 +10,8 @@ import 'package:demo_ai_even/controllers/pin_text_controller.dart';
 import 'package:demo_ai_even/views/even_list_page.dart';
 import 'package:demo_ai_even/views/features_page.dart';
 import 'package:demo_ai_even/views/notification_whitelist_page.dart';
+import 'package:demo_ai_even/views/addons/addon_dashboard_section.dart';
+import 'package:demo_ai_even/views/addons/addon_installed_list.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -387,6 +389,9 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 16),
+              const AddonInstalledList(),
+              const SizedBox(height: 8),
+              const AddonDashboardSection(),
               if (BleManager.get().getConnectionStatus() == 'Not connected')
                 blePairedList(),
               if (BleManager.get().isConnected)

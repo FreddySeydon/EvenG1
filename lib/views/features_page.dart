@@ -4,6 +4,7 @@ import 'package:demo_ai_even/views/features/display_settings_page.dart';
 import 'package:demo_ai_even/views/features/weather_page.dart';
 import 'package:demo_ai_even/views/features/upload_image_page.dart';
 import 'package:demo_ai_even/views/pin_text_page.dart';
+import 'package:demo_ai_even/views/addons/addon_store_page.dart';
 import 'package:flutter/material.dart';
 
 class FeaturesPage extends StatefulWidget {
@@ -86,6 +87,28 @@ class _FeaturesPageState extends State<FeaturesPage> {
                   margin: const EdgeInsets.only(top: 16),
                   child: const Text(
                     "Weather",
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () async {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const AddonStorePage()),
+                  );
+                },
+                child: Container(
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  alignment: Alignment.center,
+                  margin: const EdgeInsets.only(top: 16),
+                  child: const Text(
+                    "Addons & Store",
                     style: TextStyle(fontSize: 16),
                   ),
                 ),
