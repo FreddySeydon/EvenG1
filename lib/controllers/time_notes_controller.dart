@@ -8,6 +8,7 @@ import '../services/time_notes_service.dart';
 class TimeNotesController extends GetxController {
   final notes = <TimeNote>[].obs;
   final activeNotes = <TimeNote>[].obs;
+  final generalNotes = <TimeNote>[].obs;
 
   Timer? _ticker;
 
@@ -56,7 +57,8 @@ class TimeNotesController extends GetxController {
 
   void _recomputeActive() {
     final now = DateTime.now();
-    final filtered = notes.where((n) => n.isActiveAt(now)).toList();
-    activeNotes.assignAll(filtered);
+    final active = notes.where((n) => n.isActiveAt(now)).toList();
+    activeNotes.assignAll(active);
+    generalNotes.assignAll(notes.where((n) => n.type == TimeNoteType.general));
   }
 }

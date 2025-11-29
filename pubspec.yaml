@@ -52,6 +52,8 @@ dependencies:
   # Image picking and processing
   image_picker: ^1.0.7
   image: ^4.1.7
+  # XML parsing for timetable APIs
+  xml: ^6.5.0
 
 
 dev_dependencies:

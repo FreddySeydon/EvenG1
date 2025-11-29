@@ -1,9 +1,11 @@
 enum TimeNoteRecurrence { once, weekly }
+enum TimeNoteType { timed, general }
 
 class TimeNote {
   final String id;
   final String title;
   final String content;
+  final TimeNoteType type;
   final TimeNoteRecurrence recurrence;
   final DateTime? startDateTime; // Used for one-time notes
   final DateTime? endDateTime;   // Used for one-time notes
@@ -15,6 +17,7 @@ class TimeNote {
     required this.id,
     required this.title,
     required this.content,
+    this.type = TimeNoteType.timed,
     required this.recurrence,
     required this.startMinutes,
     required this.endMinutes,
@@ -24,6 +27,10 @@ class TimeNote {
   });
 
   bool isActiveAt(DateTime now) {
+    if (type == TimeNoteType.general) {
+      return false;
+    }
+
     if (recurrence == TimeNoteRecurrence.once) {
       if (startDateTime == null || endDateTime == null) return false;
       return !now.isBefore(startDateTime!) && now.isBefore(endDateTime!);
@@ -42,6 +49,7 @@ class TimeNote {
     String? id,
     String? title,
     String? content,
+    TimeNoteType? type,
     TimeNoteRecurrence? recurrence,
     DateTime? startDateTime,
     DateTime? endDateTime,
@@ -53,6 +61,7 @@ class TimeNote {
       id: id ?? this.id,
       title: title ?? this.title,
       content: content ?? this.content,
+      type: type ?? this.type,
       recurrence: recurrence ?? this.recurrence,
       startMinutes: startMinutes ?? this.startMinutes,
       endMinutes: endMinutes ?? this.endMinutes,
@@ -67,6 +76,7 @@ class TimeNote {
       'id': id,
       'title': title,
       'content': content,
+      'type': type.name,
       'recurrence': recurrence.name,
       'startDateTime': startDateTime?.toIso8601String(),
       'endDateTime': endDateTime?.toIso8601String(),
@@ -78,6 +88,7 @@ class TimeNote {
 
   factory TimeNote.fromJson(Map<String, dynamic> json) {
     final recurrenceName = json['recurrence'] as String? ?? 'once';
+    final typeName = json['type'] as String? ?? 'timed';
     final startDateString = json['startDateTime'] as String?;
     final endDateString = json['endDateTime'] as String?;
 
@@ -85,6 +96,7 @@ class TimeNote {
       id: json['id'] as String,
       title: json['title'] as String? ?? '',
       content: json['content'] as String? ?? '',
+      type: typeName == 'general' ? TimeNoteType.general : TimeNoteType.timed,
       recurrence: recurrenceName == 'weekly'
           ? TimeNoteRecurrence.weekly
           : TimeNoteRecurrence.once,

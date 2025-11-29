@@ -119,6 +119,9 @@ class TimeNotesPage extends StatelessWidget {
   }
 
   String _scheduleLabel(TimeNote note) {
+    if (note.type == TimeNoteType.general) {
+      return 'General note (shown when no timed note is active)';
+    }
     if (note.recurrence == TimeNoteRecurrence.once) {
       final start = note.startDateTime;
       final end = note.endDateTime;
@@ -160,6 +163,7 @@ Future<void> _openEditor(
   final recurrence = ValueNotifier<TimeNoteRecurrence>(
     note?.recurrence ?? TimeNoteRecurrence.once,
   );
+  final isGeneral = ValueNotifier<bool>(note?.type == TimeNoteType.general);
   DateTime? oneTimeStart = note?.startDateTime ?? DateTime.now();
   DateTime? oneTimeEnd = note?.endDateTime ?? DateTime.now().add(const Duration(hours: 1));
   List<int> weekdays = note?.weekdays.isNotEmpty == true
@@ -237,10 +241,26 @@ Future<void> _openEditor(
                           }
                         },
                       ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          const Text('General note'),
+                          Switch(
+                            value: isGeneral.value,
+                            onChanged: (val) {
+                              isGeneral.value = val;
+                              if (val) {
+                                // No schedule needed for general notes.
+                              }
+                              setState(() {});
+                            },
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  if (recurrence.value == TimeNoteRecurrence.once)
+                  if (!isGeneral.value && recurrence.value == TimeNoteRecurrence.once)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -272,7 +292,7 @@ Future<void> _openEditor(
                         ),
                       ],
                     )
-                  else
+                  else if (!isGeneral.value)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -348,6 +368,7 @@ Future<void> _openEditor(
                           note: note,
                           title: titleController.text.trim(),
                           content: contentController.text.trim(),
+                          isGeneral: isGeneral.value,
                           recurrence: recurrence.value,
                           oneTimeStart: oneTimeStart,
                           oneTimeEnd: oneTimeEnd,
@@ -383,6 +404,7 @@ TimeNote? _buildNote({
   required String title,
   required String content,
   required TimeNoteRecurrence recurrence,
+  required bool isGeneral,
   required DateTime? oneTimeStart,
   required DateTime? oneTimeEnd,
   required List<int> weekdays,
@@ -392,6 +414,18 @@ TimeNote? _buildNote({
 }) {
   if (content.isEmpty) return null;
 
+  if (isGeneral) {
+    return TimeNote(
+      id: note?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+      content: content,
+      type: TimeNoteType.general,
+      recurrence: TimeNoteRecurrence.once,
+      startMinutes: 0,
+      endMinutes: 0,
+    );
+  }
+
   if (recurrence == TimeNoteRecurrence.once) {
     if (oneTimeStart == null || oneTimeEnd == null) return null;
     if (!oneTimeEnd.isAfter(oneTimeStart)) return null;
@@ -399,6 +433,7 @@ TimeNote? _buildNote({
       id: note?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
       title: title,
       content: content,
+      type: TimeNoteType.timed,
       recurrence: recurrence,
       startDateTime: oneTimeStart,
       endDateTime: oneTimeEnd,
@@ -414,6 +449,7 @@ TimeNote? _buildNote({
     id: note?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
     title: title,
     content: content,
+    type: TimeNoteType.timed,
     recurrence: recurrence,
     startMinutes: startMinutes,
     endMinutes: endMinutes,

@@ -51,9 +51,9 @@ class _HomePageState extends State<HomePage> {
         } catch (e) {
           print('PinTextController not found: $e');
         }
-        
-        // Apply saved display type settings
-        _applySavedDisplaySettings();
+
+        // Align dashboard layout/time on connect to keep both lenses consistent.
+        _syncDashboardOnConnect();
       }
     };
     _checkNotificationPermission();
@@ -66,6 +66,20 @@ class _HomePageState extends State<HomePage> {
       // The sync happens automatically when app comes to foreground
     } catch (e) {
       print('Error in sync: $e');
+    }
+  }
+
+  Future<void> _syncDashboardOnConnect() async {
+    try {
+      // Use full dashboard (mode 0) for calendar/time pane.
+      await Proto.setDashboardMode(modeId: 0);
+      // Send a neutral time/weather baseline; WeatherController will refresh separately.
+      await Proto.setTimeAndWeather(
+        weatherIconId: 0x00,
+        temperature: 0,
+      );
+    } catch (e) {
+      print('Error syncing dashboard on connect: $e');
     }
   }
 

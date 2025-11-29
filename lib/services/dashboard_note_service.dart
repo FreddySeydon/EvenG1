@@ -22,9 +22,6 @@ class DashboardNoteService {
       return false;
     }
 
-    // Ensure the dashboard layout is dual so the note shows on the right pane.
-    await Proto.setDashboardMode(modeId: 1);
-
     final packet = _buildAddCommand(
       noteNumber: noteNumber,
       title: title,
