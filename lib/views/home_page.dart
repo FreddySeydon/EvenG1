@@ -246,43 +246,43 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget blePairedList() => Expanded(
-        child: ListView.separated(
-          separatorBuilder: (context, index) => const SizedBox(height: 5),
-          itemCount: BleManager.get().getPairedGlasses().length,
-          itemBuilder: (context, index) {
-            final glasses = BleManager.get().getPairedGlasses()[index];
-            return GestureDetector(
-              onTap: () async {
-                String channelNumber = glasses['channelNumber']!;
-                await BleManager.get().connectToGlasses("Pair_$channelNumber");
-                _refreshPage();
-              },
-              child: Container(
-                height: 72,
-                padding: const EdgeInsets.only(left: 16, right: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Pair: ${glasses['channelNumber']}'),
-                        Text(
-                            'Left: ${glasses['leftDeviceName']} \nRight: ${glasses['rightDeviceName']}'),
-                      ],
-                    ),
-                  ],
-                ),
+  Widget blePairedList() => ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        separatorBuilder: (context, index) => const SizedBox(height: 5),
+        itemCount: BleManager.get().getPairedGlasses().length,
+        itemBuilder: (context, index) {
+          final glasses = BleManager.get().getPairedGlasses()[index];
+          return GestureDetector(
+            onTap: () async {
+              String channelNumber = glasses['channelNumber']!;
+              await BleManager.get().connectToGlasses("Pair_$channelNumber");
+              _refreshPage();
+            },
+            child: Container(
+              height: 72,
+              padding: const EdgeInsets.only(left: 16, right: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(5),
               ),
-            );
-          },
-        ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Pair: ${glasses['channelNumber']}'),
+                      Text(
+                          'Left: ${glasses['leftDeviceName']} \nRight: ${glasses['rightDeviceName']}'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       );
 
   @override
