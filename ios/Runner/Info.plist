@@ -36,6 +36,8 @@
 	<string>This app needs location access to fetch weather information for your current city.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>This app needs contacts access to display caller names for incoming calls.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>This app reads your calendar to surface event-aware notes on the glasses.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>

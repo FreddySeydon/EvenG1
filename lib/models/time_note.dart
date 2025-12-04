@@ -8,10 +8,16 @@ class TimeNote {
   final TimeNoteType type;
   final TimeNoteRecurrence recurrence;
   final DateTime? startDateTime; // Used for one-time notes
-  final DateTime? endDateTime;   // Used for one-time notes
-  final List<int> weekdays;      // 1 = Monday, 7 = Sunday for weekly recurrence
-  final int startMinutes;        // Minutes from midnight (00:00)
-  final int endMinutes;          // Minutes from midnight (00:00)
+  final DateTime? endDateTime; // Used for one-time notes
+  final List<int> weekdays; // 1 = Monday, 7 = Sunday for weekly recurrence
+  final int startMinutes; // Minutes from midnight (00:00)
+  final int endMinutes; // Minutes from midnight (00:00)
+  final String? calendarEventId; // Event identifier from device calendar
+  final String? calendarId; // Calendar identifier
+  final DateTime? calendarStart; // Cached event start time
+  final DateTime? calendarEnd; // Cached event end time
+  final String? calendarTitle;
+  final String? calendarLocation;
 
   const TimeNote({
     required this.id,
@@ -24,9 +30,25 @@ class TimeNote {
     this.startDateTime,
     this.endDateTime,
     this.weekdays = const [],
+    this.calendarEventId,
+    this.calendarId,
+    this.calendarStart,
+    this.calendarEnd,
+    this.calendarTitle,
+    this.calendarLocation,
   });
 
+  bool get isCalendarLinked =>
+      calendarEventId != null &&
+      calendarEventId!.isNotEmpty &&
+      calendarStart != null &&
+      calendarEnd != null;
+
   bool isActiveAt(DateTime now) {
+    if (isCalendarLinked) {
+      return !now.isBefore(calendarStart!) && now.isBefore(calendarEnd!);
+    }
+
     if (type == TimeNoteType.general) {
       return false;
     }
@@ -56,6 +78,12 @@ class TimeNote {
     List<int>? weekdays,
     int? startMinutes,
     int? endMinutes,
+    String? calendarEventId,
+    String? calendarId,
+    DateTime? calendarStart,
+    DateTime? calendarEnd,
+    String? calendarTitle,
+    String? calendarLocation,
   }) {
     return TimeNote(
       id: id ?? this.id,
@@ -68,6 +96,12 @@ class TimeNote {
       startDateTime: startDateTime ?? this.startDateTime,
       endDateTime: endDateTime ?? this.endDateTime,
       weekdays: weekdays ?? List<int>.from(this.weekdays),
+      calendarEventId: calendarEventId ?? this.calendarEventId,
+      calendarId: calendarId ?? this.calendarId,
+      calendarStart: calendarStart ?? this.calendarStart,
+      calendarEnd: calendarEnd ?? this.calendarEnd,
+      calendarTitle: calendarTitle ?? this.calendarTitle,
+      calendarLocation: calendarLocation ?? this.calendarLocation,
     );
   }
 
@@ -83,6 +117,12 @@ class TimeNote {
       'weekdays': weekdays,
       'startMinutes': startMinutes,
       'endMinutes': endMinutes,
+      'calendarEventId': calendarEventId,
+      'calendarId': calendarId,
+      'calendarStart': calendarStart?.toIso8601String(),
+      'calendarEnd': calendarEnd?.toIso8601String(),
+      'calendarTitle': calendarTitle,
+      'calendarLocation': calendarLocation,
     };
   }
 
@@ -105,6 +145,16 @@ class TimeNote {
       startDateTime: startDateString != null ? DateTime.parse(startDateString) : null,
       endDateTime: endDateString != null ? DateTime.parse(endDateString) : null,
       weekdays: (json['weekdays'] as List<dynamic>? ?? []).map((e) => (e as num).toInt()).toList(),
+      calendarEventId: json['calendarEventId'] as String?,
+      calendarId: json['calendarId'] as String?,
+      calendarStart: (json['calendarStart'] as String?) != null
+          ? DateTime.tryParse(json['calendarStart'] as String)
+          : null,
+      calendarEnd: (json['calendarEnd'] as String?) != null
+          ? DateTime.tryParse(json['calendarEnd'] as String)
+          : null,
+      calendarTitle: json['calendarTitle'] as String?,
+      calendarLocation: json['calendarLocation'] as String?,
     );
   }
 }

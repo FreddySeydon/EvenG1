@@ -5,6 +5,7 @@ import 'package:demo_ai_even/controllers/pin_text_controller.dart';
 import 'package:demo_ai_even/controllers/weather_controller.dart';
 import 'package:demo_ai_even/controllers/addon_controller.dart';
 import 'package:demo_ai_even/controllers/time_notes_controller.dart';
+import 'package:demo_ai_even/controllers/calendar_controller.dart';
 import 'package:demo_ai_even/services/notification_service.dart';
 import 'package:demo_ai_even/services/pin_text_voice_service.dart';
 import 'package:demo_ai_even/services/time_notes_scheduler.dart';
@@ -21,6 +22,7 @@ void main() async {
   Get.put(PinTextController());
   Get.put(WeatherController());
   Get.put(AddonController());
+  Get.put(CalendarController());
   Get.put(TimeNotesController());
   Get.put(TimeNotesScheduler());
   

@@ -117,21 +117,27 @@ class TimeNotesScheduler extends GetxService {
   bool _shouldSend(TimeNote note, DateTime now) {
     if (!note.isActiveAt(now)) return false;
     final key = note.id;
-    final today = _todayString(now);
+    final token = _sendToken(note, now);
+    if (token == null) return false;
     final last = _lastSent[key];
 
-    if (note.recurrence == TimeNoteRecurrence.once) {
-      // Send only once for one-time notes.
-      return last == null;
-    }
-
-    // Weekly recurrence: send once per day when active.
-    return last != today;
+    return last != token;
   }
 
   void _markSent(TimeNote note, DateTime now) {
-    _lastSent[note.id] =
-        note.recurrence == TimeNoteRecurrence.once ? 'once' : _todayString(now);
+    final token = _sendToken(note, now) ?? 'once';
+    _lastSent[note.id] = token;
+  }
+
+  String? _sendToken(TimeNote note, DateTime now) {
+    if (note.isCalendarLinked && note.calendarStart != null) {
+      // Use the event start timestamp to allow repeated sends for recurring events.
+      return note.calendarStart!.toIso8601String();
+    }
+    if (note.recurrence == TimeNoteRecurrence.once) {
+      return 'once';
+    }
+    return _todayString(now);
   }
 
   String _todayString(DateTime now) =>
