@@ -2,7 +2,9 @@ import 'package:get/get.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../ble_manager.dart';
 import '../models/device_calendar_event.dart';
+import '../services/calendar_service.dart';
 import '../services/device_calendar_service.dart';
 
 class CalendarController extends GetxController {
@@ -12,8 +14,12 @@ class CalendarController extends GetxController {
   final events = <DeviceCalendarEvent>[].obs;
   final errorMessage = RxnString();
   final selectedCalendarIds = <String>{}.obs;
-  final windowStartOffsetDays = (-1).obs;
+  final windowStartOffsetDays = 0.obs;
   final windowSpanDays = 14.obs;
+  final autoSendNextEvent = false.obs;
+
+  static const _prefSelectedIds = 'calendar_selected_ids';
+  static const _prefAutoSend = 'calendar_auto_send_next';
 
   /// How far ahead we look for events when refreshing.
   Duration get horizon => Duration(days: windowSpanDays.value);
@@ -29,6 +35,7 @@ class CalendarController extends GetxController {
     hasPermission.value = granted;
     if (granted) {
       await _loadSelectedCalendars();
+      await _loadAutoSendPref();
       await refreshCalendarsAndEvents();
     }
   }
@@ -67,6 +74,10 @@ class CalendarController extends GetxController {
         calendarIds: _effectiveCalendarIds(loadedCalendars),
       );
       events.assignAll(loadedEvents..sort((a, b) => a.start.compareTo(b.start)));
+
+      if (autoSendNextEvent.value && BleManager.get().isConnected) {
+        await sendNextEventToGlasses(fullSync: true);
+      }
     } catch (e) {
       errorMessage.value = 'Failed to load calendar events: $e';
     } finally {
@@ -111,7 +122,7 @@ class CalendarController extends GetxController {
   }
 
   Future<void> resetWindow() async {
-    windowStartOffsetDays.value = -1;
+    windowStartOffsetDays.value = 0;
     windowSpanDays.value = 14;
     await refreshCalendarsAndEvents();
   }
@@ -135,7 +146,7 @@ class CalendarController extends GetxController {
   Future<void> _loadSelectedCalendars() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getStringList('calendar_selected_ids') ?? <String>[];
+      final stored = prefs.getStringList(_prefSelectedIds) ?? <String>[];
       selectedCalendarIds
         ..clear()
         ..addAll(stored);
@@ -147,9 +158,34 @@ class CalendarController extends GetxController {
   Future<void> _persistSelectedCalendars() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('calendar_selected_ids', selectedCalendarIds.toList());
+      await prefs.setStringList(_prefSelectedIds, selectedCalendarIds.toList());
     } catch (e) {
       print('CalendarController: failed to persist selected calendars: $e');
+    }
+  }
+
+  Future<void> _loadAutoSendPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getBool(_prefAutoSend);
+      if (stored != null) {
+        autoSendNextEvent.value = stored;
+      }
+    } catch (e) {
+      print('CalendarController: failed to load auto-send pref: $e');
+    }
+  }
+
+  Future<void> setAutoSendNextEvent(bool value) async {
+    autoSendNextEvent.value = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefAutoSend, value);
+    } catch (e) {
+      print('CalendarController: failed to persist auto-send pref: $e');
+    }
+    if (value) {
+      await refreshCalendarsAndEvents();
     }
   }
 
@@ -168,5 +204,41 @@ class CalendarController extends GetxController {
     final ids = selectedCalendarIds.toList();
     if (ids.isNotEmpty) return ids;
     return const <String>[];
+  }
+
+  Future<bool> sendNextEventToGlasses({bool fullSync = true}) async {
+    if (!BleManager.get().isConnected) return false;
+    if (events.isEmpty) {
+      return CalendarService.instance.sendCalendarItem(
+        name: 'No upcoming events',
+        time: '',
+        location: '',
+        fullSync: fullSync,
+      );
+    }
+    final now = DateTime.now();
+    final upcoming = events.where((e) => e.start.isAfter(now)).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    final next = upcoming.isNotEmpty ? upcoming.first : events.first;
+    final timeLabel = _formatTimeLabel(next);
+    return CalendarService.instance.sendCalendarItem(
+      name: next.title,
+      time: timeLabel,
+      location: next.location,
+      fullSync: fullSync,
+    );
+  }
+
+  String _formatTimeLabel(DeviceCalendarEvent event) {
+    final now = DateTime.now();
+    final isTomorrow = event.start.isAfter(now) &&
+        event.start.isBefore(now.add(const Duration(days: 2))) &&
+        event.start.day != now.day;
+    final datePart = isTomorrow
+        ? 'Tomorrow'
+        : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
+    final timePart =
+        '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
+    return '$datePart  $timePart';
   }
 }

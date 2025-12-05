@@ -28,10 +28,8 @@
     <!-- Microphone permission for speech recognition -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     
-    <!-- Phone permissions for call state detection -->
+    <!-- Phone permissions for call state detection (reduced to avoid extra prompts) -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
     
     <!-- Notification permission for Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" 

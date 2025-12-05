@@ -44,6 +44,7 @@ class BleManager {
   bool isConnected = false;
   String connectionStatus = 'Not connected';
   bool _isAppInBackground = false; // Track if app is in background
+  bool _pinTextVoiceEnabled = false; // Gate for phone-mic Pin Text recognition
   final Map<String, StringBuffer> _f6MessageBuffers = {};
 
   void _init() {}
@@ -73,6 +74,11 @@ class BleManager {
       // Check actual connection status when coming to foreground
       _checkActualConnectionStatus();
     }
+  }
+
+  /// Enable/disable phone-mic Pin Text voice capture (default: disabled).
+  void setPinTextVoiceEnabled(bool enabled) {
+    _pinTextVoiceEnabled = enabled;
   }
   
   /// Sync Dart state with native service state
@@ -567,42 +573,24 @@ class BleManager {
           break;
         case 30: // 0x1E - Start Pin Text recording (per Google Docs protocol)
           print("${DateTime.now()} Received 0xF5 0x1E - Start Pin Text recording");
-          if (!EvenAI.isRunning) {
-            try {
-              print('${DateTime.now()} PinText: Starting speech recognition for Pin Text recording');
-              // Start speech recognition when Pin Text recording starts
-              // This uses phone microphone - user must speak into phone
-              BleManager.invokeMethod("startEvenAI").then((_) {
-                print('${DateTime.now()} PinText: Speech recognition started (phone microphone)');
-              }).catchError((e) {
-                print('${DateTime.now()} PinText: Error starting recognition: $e');
-              });
-            } catch (e) {
-              print('${DateTime.now()} PinText: Error handling 0xF5 0x1E: $e');
-            }
+          if (!EvenAI.isRunning && _pinTextVoiceEnabled) {
+            print('${DateTime.now()} PinText: Voice capture enabled -> starting recognition');
+            BleManager.invokeMethod("startEvenAI").catchError((e) {
+              print('${DateTime.now()} PinText: Error starting recognition: $e');
+            });
+          } else {
+            print('${DateTime.now()} PinText: Voice capture disabled, ignoring 0x1E');
           }
           break;
         case 31: // 0x1F - End Pin Text recording (per Google Docs protocol)
           print("${DateTime.now()} Received 0xF5 0x1F - End Pin Text recording");
-          if (!EvenAI.isRunning) {
-            try {
-              print('${DateTime.now()} PinText: Stopping recognition to get final results');
-              // Stop recognition to get final results
-              BleManager.invokeMethod("stopEvenAI").then((_) {
-                print('${DateTime.now()} PinText: Recognition stopped, waiting for results');
-                // Start fresh recognition after a delay for next recording
-                Future.delayed(const Duration(milliseconds: 1000), () {
-                  print('${DateTime.now()} PinText: Starting fresh recognition for next recording');
-                  BleManager.invokeMethod("startEvenAI").catchError((e) {
-                    print('${DateTime.now()} PinText: Error starting fresh recognition: $e');
-                  });
-                });
-              }).catchError((e) {
-                print('${DateTime.now()} PinText: Error stopping recognition: $e');
-              });
-            } catch (e) {
-              print('${DateTime.now()} PinText: Error handling 0xF5 0x1F: $e');
-            }
+          if (!EvenAI.isRunning && _pinTextVoiceEnabled) {
+            print('${DateTime.now()} PinText: Voice capture enabled -> stopping recognition');
+            BleManager.invokeMethod("stopEvenAI").catchError((e) {
+              print('${DateTime.now()} PinText: Error stopping recognition: $e');
+            });
+          } else {
+            print('${DateTime.now()} PinText: Voice capture disabled, ignoring 0x1F');
           }
           break;
         default:

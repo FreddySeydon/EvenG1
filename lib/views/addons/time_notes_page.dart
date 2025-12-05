@@ -1,6 +1,8 @@
+import 'dart:async';
+
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:device_calendar/device_calendar.dart';
 
 import '../../ble_manager.dart';
 import '../../controllers/calendar_controller.dart';
@@ -10,6 +12,7 @@ import '../../models/time_note.dart';
 import '../../services/calendar_service.dart';
 import '../../services/dashboard_note_service.dart';
 import '../../services/pin_text_service.dart';
+import '../../services/time_notes_scheduler.dart';
 
 class TimeNotesPage extends StatelessWidget {
   const TimeNotesPage({super.key});
@@ -122,6 +125,313 @@ class TimeNotesPage extends StatelessWidget {
   }
 }
 
+class _CalendarSection extends StatelessWidget {
+  const _CalendarSection({
+    required this.calendarController,
+    required this.notesController,
+  });
+
+  final CalendarController calendarController;
+  final TimeNotesController notesController;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final hasPermission = calendarController.hasPermission.value;
+      final isLoading = calendarController.isLoading.value;
+      final error = calendarController.errorMessage.value;
+      final events = calendarController.events;
+      final calendars = calendarController.calendars;
+      final selectedIds = calendarController.selectedCalendarIds;
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 18),
+                const SizedBox(width: 8),
+                const Text(
+                  'Calendar events',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Refresh events',
+                  onPressed: hasPermission
+                      ? () => calendarController.refreshCalendarsAndEvents()
+                      : null,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (!hasPermission)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Grant calendar permission to attach notes to events.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => calendarController.requestPermission(),
+                    icon: const Icon(Icons.lock_open),
+                    label: const Text('Allow calendar access'),
+                  ),
+                ],
+              )
+            else ...[
+              if (calendars.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _showCalendarPicker(context, calendarController),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _calendarSelectionLabel(calendars, selectedIds),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            TextButton(
+                              onPressed: () => calendarController.selectAllCalendars(calendars),
+                              child: const Text('Check all'),
+                            ),
+                            TextButton(
+                              onPressed: () => calendarController.clearCalendarSelection(),
+                              child: const Text('Uncheck all'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Window',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          Text(
+                            _windowDates(calendarController),
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    Wrap(
+                      spacing: 0,
+                      children: [
+                        IconButton(
+                          tooltip: 'Previous window',
+                          onPressed: () => calendarController.moveWindowByDays(
+                            -calendarController.windowSpanDays.value,
+                          ),
+                          icon: const Icon(Icons.chevron_left),
+                        ),
+                        IconButton(
+                          tooltip: 'Next window',
+                          onPressed: () => calendarController.moveWindowByDays(
+                            calendarController.windowSpanDays.value,
+                          ),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                        PopupMenuButton<int>(
+                          tooltip: 'Window length',
+                          onSelected: (days) => calendarController.setWindowSpan(days),
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(value: 7, child: Text('7 days')),
+                            PopupMenuItem(value: 14, child: Text('14 days')),
+                            PopupMenuItem(value: 30, child: Text('30 days')),
+                          ],
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Icon(Icons.calendar_view_week),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => calendarController.resetWindow(),
+                          child: const Text('Reset'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Auto-display next event on glasses'),
+                subtitle: const Text('When events refresh and glasses are connected'),
+                value: calendarController.autoSendNextEvent.value,
+                onChanged: (val) => calendarController.setAutoSendNextEvent(val),
+              ),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    error,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ),
+              if (isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Loading events...'),
+                    ],
+                  ),
+                ),
+              if (!isLoading && events.isEmpty)
+                const Text(
+                  'No events found in the selected window.',
+                  style: TextStyle(color: Colors.grey),
+                )
+              else
+                ...events.take(5).map(
+                  (event) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      event.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_formatEventDate(event.start)} · ${_formatEventRange(event)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        if (event.location.isNotEmpty)
+                          Text(
+                            event.location,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.note_add_outlined),
+                          tooltip: 'Attach note to this event',
+                          onPressed: () {
+                            _openEditor(
+                              context,
+                              notesController,
+                              attachedEvent: event,
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.send),
+                          tooltip: 'Send to G1 calendar pane',
+                          onPressed: () => _sendCalendarEvent(context, event, calendarController),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      );
+    });
+  }
+
+  Future<void> _sendCalendarEvent(
+    BuildContext context,
+    DeviceCalendarEvent event,
+    CalendarController calendarController,
+  ) async {
+    if (!BleManager.get().isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connect the glasses first.')),
+      );
+      return;
+    }
+    final timeLabel = _formatCalendarTime(event);
+    final ok = await CalendarService.instance.sendCalendarItem(
+      name: event.title,
+      time: timeLabel,
+      location: event.location,
+      fullSync: true,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Previewing on G1 for 5 seconds...' : 'Failed to send calendar to G1'),
+      ),
+    );
+    if (ok) {
+      Timer(const Duration(seconds: 5), () => _restoreCalendarPane(calendarController));
+    }
+  }
+
+  Future<void> _restoreCalendarPane(CalendarController controller) async {
+    final events = controller.events;
+    if (events.isEmpty) {
+      await CalendarService.instance.sendCalendarItem(
+        name: 'No upcoming events',
+        time: '',
+        location: '',
+        fullSync: true,
+      );
+      return;
+    }
+
+    final now = DateTime.now();
+    final next = events.firstWhere(
+      (e) => e.start.isAfter(now),
+      orElse: () => events.first,
+    );
+
+    final timeLabel = _formatCalendarTime(next);
+
+    await CalendarService.instance.sendCalendarItem(
+      name: next.title,
+      time: timeLabel,
+      location: next.location,
+      fullSync: true,
+    );
+  }
+}
 Future<void> _sendToDashboard(BuildContext context, TimeNote note) async {
   if (!BleManager.get().isConnected) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -130,12 +440,14 @@ Future<void> _sendToDashboard(BuildContext context, TimeNote note) async {
     return;
   }
   ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Sending note to G1 dashboard...')),
+    const SnackBar(content: Text('Previewing note on G1 for 5 seconds...')),
   );
   await PinTextService.instance.sendPinText(note.content);
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Note sent to G1 dashboard')),
-  );
+  Timer(const Duration(seconds: 5), () {
+    if (Get.isRegistered<TimeNotesScheduler>()) {
+      Get.find<TimeNotesScheduler>().resendActiveNow();
+    }
+  });
 }
 
 String _scheduleLabel(TimeNote note) {
@@ -154,7 +466,7 @@ String _scheduleLabel(TimeNote note) {
       datePart,
       range,
       if (location.isNotEmpty) location,
-    ].join(' Жњ ');
+    ].join(' · ');
   }
 
   if (note.type == TimeNoteType.general) {
@@ -166,11 +478,11 @@ String _scheduleLabel(TimeNote note) {
     if (start == null || end == null) return 'One-time (unscheduled)';
     final date = '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
     final range = '${_formatTime(start)} - ${_formatTime(end)}';
-    return '$date Жњ $range';
+    return '$date · $range';
   }
 
   final days = note.weekdays.map(_weekdayLabel).join(', ');
-  return 'Weekly on $days Жњ ${_formatMinutes(note.startMinutes)} - ${_formatMinutes(note.endMinutes)}';
+  return 'Weekly on $days · ${_formatMinutes(note.startMinutes)} - ${_formatMinutes(note.endMinutes)}';
 }
 
 String _formatEventRange(DeviceCalendarEvent event) {
@@ -221,6 +533,21 @@ String _windowDates(CalendarController controller) {
   final start = now.add(Duration(days: controller.windowStartOffsetDays.value));
   final end = start.add(Duration(days: controller.windowSpanDays.value));
   return '${_formatEventDate(start)} → ${_formatEventDate(end)}';
+}
+
+String _formatCalendarTime(DeviceCalendarEvent event) {
+  final now = DateTime.now();
+  final isTomorrow = event.start.isAfter(now) &&
+      event.start.isBefore(now.add(const Duration(days: 2))) &&
+      event.start.day != now.day;
+
+  final dateLabel = isTomorrow
+      ? 'Tomorrow'
+      : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
+  final timeLabel =
+      '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
+
+  return '$dateLabel  $timeLabel';
 }
 
 Future<void> _showCalendarPicker(
@@ -819,280 +1146,4 @@ Future<int?> _pickTime(BuildContext context, int initialMinutes) async {
   final picked = await showTimePicker(context: context, initialTime: initialTime);
   if (picked == null) return null;
   return picked.hour * 60 + picked.minute;
-}
-
-class _CalendarSection extends StatelessWidget {
-  const _CalendarSection({
-    required this.calendarController,
-    required this.notesController,
-  });
-
-  final CalendarController calendarController;
-  final TimeNotesController notesController;
-
-  @override
-  Widget build(BuildContext context) {
-    return Obx(() {
-      final hasPermission = calendarController.hasPermission.value;
-      final isLoading = calendarController.isLoading.value;
-      final error = calendarController.errorMessage.value;
-      final events = calendarController.events;
-      final calendars = calendarController.calendars;
-      final selectedIds = calendarController.selectedCalendarIds;
-
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.calendar_today, size: 18),
-                const SizedBox(width: 8),
-                const Text(
-                  'Calendar events',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const Spacer(),
-                IconButton(
-                  tooltip: 'Refresh events',
-                  onPressed: hasPermission
-                      ? () => calendarController.refreshCalendarsAndEvents()
-                      : null,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (!hasPermission)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Grant calendar permission to attach notes to events.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => calendarController.requestPermission(),
-                    icon: const Icon(Icons.lock_open),
-                    label: const Text('Allow calendar access'),
-                  ),
-                ],
-              )
-            else ...[
-              if (calendars.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => _showCalendarPicker(context, calendarController),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              _calendarSelectionLabel(calendars, selectedIds),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Wrap(
-                          spacing: 4,
-                          runSpacing: 4,
-                          children: [
-                            TextButton(
-                              onPressed: () => calendarController.selectAllCalendars(calendars),
-                              child: const Text('Check all'),
-                            ),
-                            TextButton(
-                              onPressed: () => calendarController.clearCalendarSelection(),
-                              child: const Text('Uncheck all'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Window',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                          Text(
-                            _windowDates(calendarController),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Spacer(),
-                    Wrap(
-                      spacing: 0,
-                      children: [
-                        IconButton(
-                          tooltip: 'Previous window',
-                          onPressed: () => calendarController.moveWindowByDays(
-                            -calendarController.windowSpanDays.value,
-                          ),
-                          icon: const Icon(Icons.chevron_left),
-                        ),
-                        IconButton(
-                          tooltip: 'Next window',
-                          onPressed: () => calendarController.moveWindowByDays(
-                            calendarController.windowSpanDays.value,
-                          ),
-                          icon: const Icon(Icons.chevron_right),
-                        ),
-                        PopupMenuButton<int>(
-                          tooltip: 'Window length',
-                          onSelected: (days) => calendarController.setWindowSpan(days),
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(value: 7, child: Text('7 days')),
-                            PopupMenuItem(value: 14, child: Text('14 days')),
-                            PopupMenuItem(value: 30, child: Text('30 days')),
-                          ],
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4),
-                            child: Icon(Icons.calendar_view_week),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => calendarController.resetWindow(),
-                          child: const Text('Reset'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    error,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
-              if (isLoading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Loading events...'),
-                    ],
-                  ),
-                ),
-              if (!isLoading && events.isEmpty)
-                const Text(
-                  'No events found in the selected window.',
-                  style: TextStyle(color: Colors.grey),
-                )
-              else
-                ...events.take(5).map(
-                  (event) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      event.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${_formatEventDate(event.start)} · ${_formatEventRange(event)}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        if (event.location.isNotEmpty)
-                          Text(
-                            event.location,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.note_add_outlined),
-                          tooltip: 'Attach note to this event',
-                          onPressed: () {
-                            _openEditor(
-                              context,
-                              notesController,
-                              attachedEvent: event,
-                            );
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.send),
-                          tooltip: 'Send to G1 calendar pane',
-                          onPressed: () => _sendCalendarEvent(context, event),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ],
-        ),
-      );
-    });
-  }
-
-  Future<void> _sendCalendarEvent(
-    BuildContext context,
-    DeviceCalendarEvent event,
-  ) async {
-    if (!BleManager.get().isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connect the glasses first.')),
-      );
-      return;
-    }
-    final timeLabel = _formatEventRange(event);
-    final formattedTitle = [
-      timeLabel,
-      if (event.location.isNotEmpty) event.location,
-      event.title,
-    ].where((part) => part.isNotEmpty).join(' | ');
-    final ok = await CalendarService.instance.sendCalendarItem(
-      name: event.title,
-      time: timeLabel,
-      location: event.location,
-      titleOverride: formattedTitle,
-      fullSync: true,
-    );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(ok ? 'Calendar sent to G1' : 'Failed to send calendar to G1'),
-        ),
-      );
-    }
-  }
 }

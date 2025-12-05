@@ -42,6 +42,9 @@ class TimeNotesScheduler extends GetxService {
     super.onClose();
   }
 
+  /// Re-run the active note send logic immediately (used after previews).
+  Future<void> resendActiveNow() => _handleActive();
+
   Future<void> _handleActive() async {
     final now = DateTime.now();
     final actives = _controller.activeNotes;

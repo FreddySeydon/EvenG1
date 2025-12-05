@@ -20,12 +20,17 @@ class PinTextVoiceService {
   StreamSubscription<dynamic>? _speechSubscription;
   String _currentRecordingText = '';
   bool _isRecording = false;
+  bool _enabled = false;
 
   Timer? _debounceTimer;
   String _lastText = '';
 
   /// Start listening for speech recognition results to create PinText
   void startListening() {
+    if (!_enabled) {
+      print('PinTextVoiceService: startListening ignored (disabled)');
+      return;
+    }
     if (_speechSubscription != null) {
       // Cancel existing subscription and create a new one
       _speechSubscription?.cancel();
@@ -79,6 +84,14 @@ class PinTextVoiceService {
     print('${DateTime.now()} PinTextVoiceService: Started listening for voice recordings');
   }
 
+  /// Enable or disable voice-triggered pin text creation (opt-in).
+  void setEnabled(bool enabled) {
+    _enabled = enabled;
+    if (!enabled) {
+      stopListening();
+    }
+  }
+
   void _createNoteFromSpeech(String text) {
     if (text.trim().isEmpty) {
       print('${DateTime.now()} PinTextVoiceService: Empty text, not creating note');
@@ -110,5 +123,4 @@ class PinTextVoiceService {
     stopListening();
   }
 }
-
 

@@ -1,6 +1,7 @@
 // ignore_for_file: library_private_types_in_public_api
 
 import 'package:demo_ai_even/views/features/display_settings_page.dart';
+import 'package:demo_ai_even/views/features/calendar_page.dart';
 import 'package:demo_ai_even/views/features/weather_page.dart';
 import 'package:demo_ai_even/views/features/upload_image_page.dart';
 import 'package:demo_ai_even/views/pin_text_page.dart';
@@ -65,6 +66,28 @@ class _FeaturesPageState extends State<FeaturesPage> {
                   margin: const EdgeInsets.only(top: 16),
                   child: const Text(
                     "Pin Text",
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () async {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const CalendarPage()),
+                  );
+                },
+                child: Container(
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  alignment: Alignment.center,
+                  margin: const EdgeInsets.only(top: 16),
+                  child: const Text(
+                    "Calendar",
                     style: TextStyle(fontSize: 16),
                   ),
                 ),

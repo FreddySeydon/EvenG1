@@ -28,10 +28,8 @@ void main() async {
   
   // Initialize notification service
   await _initializeNotificationService();
-  
-  // Start listening for Pin Text voice recordings
-  PinTextVoiceService.instance.startListening();
-  
+  // Voice-triggered pin text is opt-in; do not auto-start to avoid surprise mic use.
+
   runApp(MyApp());
 }
 
