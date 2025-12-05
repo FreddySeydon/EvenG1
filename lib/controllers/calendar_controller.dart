@@ -231,12 +231,18 @@ class CalendarController extends GetxController {
 
   String _formatTimeLabel(DeviceCalendarEvent event) {
     final now = DateTime.now();
-    final isTomorrow = event.start.isAfter(now) &&
+    final isToday = event.start.year == now.year &&
+        event.start.month == now.month &&
+        event.start.day == now.day;
+    final isTomorrow = !isToday &&
+        event.start.isAfter(now) &&
         event.start.isBefore(now.add(const Duration(days: 2))) &&
         event.start.day != now.day;
-    final datePart = isTomorrow
-        ? 'Tomorrow'
-        : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
+    final datePart = isToday
+        ? 'Today'
+        : (isTomorrow
+            ? 'Tomorrow'
+            : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}');
     final timePart =
         '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
     return '$datePart  $timePart';

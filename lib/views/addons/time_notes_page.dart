@@ -537,12 +537,18 @@ String _windowDates(CalendarController controller) {
 
 String _formatCalendarTime(DeviceCalendarEvent event) {
   final now = DateTime.now();
-  final isTomorrow = event.start.isAfter(now) &&
+  final isToday = event.start.year == now.year &&
+      event.start.month == now.month &&
+      event.start.day == now.day;
+  final isTomorrow = !isToday &&
+      event.start.isAfter(now) &&
       event.start.isBefore(now.add(const Duration(days: 2))) &&
       event.start.day != now.day;
 
   final dateLabel = isTomorrow
       ? 'Tomorrow'
+      : isToday
+          ? 'Today'
       : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
   final timeLabel =
       '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
