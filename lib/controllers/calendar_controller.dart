@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 import 'package:device_calendar/device_calendar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/device_calendar_event.dart';
 import '../services/device_calendar_service.dart';
@@ -10,6 +11,7 @@ class CalendarController extends GetxController {
   final calendars = <Calendar>[].obs;
   final events = <DeviceCalendarEvent>[].obs;
   final errorMessage = RxnString();
+  final selectedCalendarIds = <String>{}.obs;
 
   /// How far ahead we look for events when refreshing.
   Duration horizon = const Duration(days: 3);
@@ -24,6 +26,7 @@ class CalendarController extends GetxController {
     final granted = await DeviceCalendarService.instance.hasPermissions();
     hasPermission.value = granted;
     if (granted) {
+      await _loadSelectedCalendars();
       await refreshCalendarsAndEvents();
     }
   }
@@ -51,6 +54,7 @@ class CalendarController extends GetxController {
     try {
       final loadedCalendars = await DeviceCalendarService.instance.loadCalendars();
       calendars.assignAll(loadedCalendars);
+      await _ensureSelectionSeeded(loadedCalendars);
 
       final now = DateTime.now();
       final start = now.subtract(const Duration(days: 1));
@@ -58,7 +62,7 @@ class CalendarController extends GetxController {
       final loadedEvents = await DeviceCalendarService.instance.loadEvents(
         start: start,
         end: end,
-        calendarIds: loadedCalendars.map((c) => c.id).whereType<String>().toList(),
+        calendarIds: _effectiveCalendarIds(loadedCalendars),
       );
       events.assignAll(loadedEvents..sort((a, b) => a.start.compareTo(b.start)));
     } catch (e) {
@@ -80,5 +84,70 @@ class CalendarController extends GetxController {
 
   List<DeviceCalendarEvent> activeEvents(DateTime now) {
     return events.where((e) => e.isActiveAt(now)).toList();
+  }
+
+  Future<void> toggleCalendarSelection(String calendarId, bool selected) async {
+    if (selected) {
+      selectedCalendarIds.add(calendarId);
+    } else {
+      selectedCalendarIds.remove(calendarId);
+    }
+    selectedCalendarIds.refresh();
+    await _persistSelectedCalendars();
+    await refreshCalendarsAndEvents();
+  }
+
+  Future<void> selectAllCalendars(List<Calendar> list) async {
+    selectedCalendarIds
+      ..clear()
+      ..addAll(list.map((c) => c.id).whereType<String>());
+    selectedCalendarIds.refresh();
+    await _persistSelectedCalendars();
+    await refreshCalendarsAndEvents();
+  }
+
+  Future<void> clearCalendarSelection() async {
+    selectedCalendarIds.clear();
+    selectedCalendarIds.refresh();
+    await _persistSelectedCalendars();
+    events.clear();
+  }
+
+  Future<void> _loadSelectedCalendars() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getStringList('calendar_selected_ids') ?? <String>[];
+      selectedCalendarIds
+        ..clear()
+        ..addAll(stored);
+    } catch (e) {
+      print('CalendarController: failed to load selected calendars: $e');
+    }
+  }
+
+  Future<void> _persistSelectedCalendars() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('calendar_selected_ids', selectedCalendarIds.toList());
+    } catch (e) {
+      print('CalendarController: failed to persist selected calendars: $e');
+    }
+  }
+
+  Future<void> _ensureSelectionSeeded(List<Calendar> loadedCalendars) async {
+    if (selectedCalendarIds.isNotEmpty) return;
+    if (loadedCalendars.isEmpty) return;
+    final firstId = loadedCalendars.first.id;
+    if (firstId == null || firstId.isEmpty) return;
+    selectedCalendarIds
+      ..clear()
+      ..add(firstId);
+    await _persistSelectedCalendars();
+  }
+
+  List<String> _effectiveCalendarIds(List<Calendar> loadedCalendars) {
+    final ids = selectedCalendarIds.toList();
+    if (ids.isNotEmpty) return ids;
+    return const <String>[];
   }
 }
