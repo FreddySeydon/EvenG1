@@ -12,9 +12,11 @@ class CalendarController extends GetxController {
   final events = <DeviceCalendarEvent>[].obs;
   final errorMessage = RxnString();
   final selectedCalendarIds = <String>{}.obs;
+  final windowStartOffsetDays = (-1).obs;
+  final windowSpanDays = 14.obs;
 
   /// How far ahead we look for events when refreshing.
-  Duration horizon = const Duration(days: 3);
+  Duration get horizon => Duration(days: windowSpanDays.value);
 
   @override
   void onInit() {
@@ -57,8 +59,8 @@ class CalendarController extends GetxController {
       await _ensureSelectionSeeded(loadedCalendars);
 
       final now = DateTime.now();
-      final start = now.subtract(const Duration(days: 1));
-      final end = now.add(horizon);
+      final start = now.add(Duration(days: windowStartOffsetDays.value));
+      final end = start.add(horizon);
       final loadedEvents = await DeviceCalendarService.instance.loadEvents(
         start: start,
         end: end,
@@ -94,6 +96,23 @@ class CalendarController extends GetxController {
     }
     selectedCalendarIds.refresh();
     await _persistSelectedCalendars();
+    await refreshCalendarsAndEvents();
+  }
+
+  Future<void> moveWindowByDays(int delta) async {
+    windowStartOffsetDays.value += delta;
+    await refreshCalendarsAndEvents();
+  }
+
+  Future<void> setWindowSpan(int days) async {
+    if (days < 1) return;
+    windowSpanDays.value = days;
+    await refreshCalendarsAndEvents();
+  }
+
+  Future<void> resetWindow() async {
+    windowStartOffsetDays.value = -1;
+    windowSpanDays.value = 14;
     await refreshCalendarsAndEvents();
   }
 

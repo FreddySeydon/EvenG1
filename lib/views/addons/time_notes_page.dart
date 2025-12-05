@@ -216,6 +216,13 @@ String _calendarSelectionLabel(
   return 'Calendars (${selectedIds.length}): $joined';
 }
 
+String _windowDates(CalendarController controller) {
+  final now = DateTime.now();
+  final start = now.add(Duration(days: controller.windowStartOffsetDays.value));
+  final end = start.add(Duration(days: controller.windowSpanDays.value));
+  return '${_formatEventDate(start)} → ${_formatEventDate(end)}';
+}
+
 Future<void> _showCalendarPicker(
   BuildContext context,
   CalendarController controller,
@@ -898,18 +905,84 @@ class _CalendarSection extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () => calendarController.selectAllCalendars(calendars),
-                        child: const Text('Check all'),
-                      ),
-                      const SizedBox(width: 4),
-                      TextButton(
-                        onPressed: () => calendarController.clearCalendarSelection(),
-                        child: const Text('Uncheck all'),
+                      Flexible(
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            TextButton(
+                              onPressed: () => calendarController.selectAllCalendars(calendars),
+                              child: const Text('Check all'),
+                            ),
+                            TextButton(
+                              onPressed: () => calendarController.clearCalendarSelection(),
+                              child: const Text('Uncheck all'),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Window',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          Text(
+                            _windowDates(calendarController),
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    Wrap(
+                      spacing: 0,
+                      children: [
+                        IconButton(
+                          tooltip: 'Previous window',
+                          onPressed: () => calendarController.moveWindowByDays(
+                            -calendarController.windowSpanDays.value,
+                          ),
+                          icon: const Icon(Icons.chevron_left),
+                        ),
+                        IconButton(
+                          tooltip: 'Next window',
+                          onPressed: () => calendarController.moveWindowByDays(
+                            calendarController.windowSpanDays.value,
+                          ),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                        PopupMenuButton<int>(
+                          tooltip: 'Window length',
+                          onSelected: (days) => calendarController.setWindowSpan(days),
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(value: 7, child: Text('7 days')),
+                            PopupMenuItem(value: 14, child: Text('14 days')),
+                            PopupMenuItem(value: 30, child: Text('30 days')),
+                          ],
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Icon(Icons.calendar_view_week),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => calendarController.resetWindow(),
+                          child: const Text('Reset'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -935,7 +1008,7 @@ class _CalendarSection extends StatelessWidget {
                 ),
               if (!isLoading && events.isEmpty)
                 const Text(
-                  'No events found in the next few days.',
+                  'No events found in the selected window.',
                   style: TextStyle(color: Colors.grey),
                 )
               else
