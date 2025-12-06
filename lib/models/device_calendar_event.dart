@@ -28,14 +28,27 @@ class DeviceCalendarEvent {
     if (startDate == null || endDate == null || eventId == null || eventId.isEmpty) {
       throw ArgumentError('Event is missing start/end');
     }
+    DateTime normalize(DateTime dt, bool isAllDay) {
+      // Plugin can return UTC or a naive (offset=0) timestamp; convert to local wall time.
+      final isNaiveUtc = !dt.isUtc &&
+          dt.timeZoneOffset == Duration.zero &&
+          DateTime.now().timeZoneOffset != Duration.zero;
+      final local = dt.isUtc || isNaiveUtc
+          ? DateTime.fromMillisecondsSinceEpoch(dt.millisecondsSinceEpoch, isUtc: true).toLocal()
+          : dt;
+      if (!isAllDay) return local;
+      // Keep date for all-day events but strip any time-zone adjustment noise.
+      return DateTime(local.year, local.month, local.day, local.hour, local.minute);
+    }
+    final allDayFlag = event.allDay ?? false;
     return DeviceCalendarEvent(
       id: eventId,
       calendarId: calendarId,
       title: event.title?.trim().isNotEmpty == true ? event.title!.trim() : 'Untitled event',
-      start: startDate,
-      end: endDate,
+      start: normalize(startDate, allDayFlag),
+      end: normalize(endDate, allDayFlag),
       location: event.location ?? '',
-      allDay: event.allDay ?? false,
+      allDay: allDayFlag,
     );
   }
 

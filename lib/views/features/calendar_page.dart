@@ -1,9 +1,9 @@
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:device_calendar/device_calendar.dart';
 
-import '../../controllers/calendar_controller.dart';
 import '../../ble_manager.dart';
+import '../../controllers/calendar_controller.dart';
 import '../../models/device_calendar_event.dart';
 
 class CalendarPage extends StatelessWidget {
@@ -77,34 +77,39 @@ class CalendarPage extends StatelessWidget {
                       ),
                     ),
                   if (calendars.isEmpty)
-                    const Text('No calendars found. Grant permission and refresh.'),
-                  if (calendars.isNotEmpty) ...[
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
+                    const Text('No calendars found. Grant permission and refresh.')
+                  else ...[
+                    Row(
                       children: [
-                        TextButton(
-                          onPressed: () => controller.selectAllCalendars(calendars),
-                          child: const Text('Check all'),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => _showCalendarPicker(context, controller),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                _calendarSelectionLabel(calendars, selectedIds),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
                         ),
-                        TextButton(
-                          onPressed: () => controller.clearCalendarSelection(),
-                          child: const Text('Uncheck all'),
+                        const SizedBox(width: 8),
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            TextButton(
+                              onPressed: () => controller.selectAllCalendars(calendars),
+                              child: const Text('Check all'),
+                            ),
+                            TextButton(
+                              onPressed: () => controller.clearCalendarSelection(),
+                              child: const Text('Uncheck all'),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    ...calendars.map((cal) {
-                      final id = cal.id ?? '';
-                      final isSelected = selectedIds.contains(id);
-                      return CheckboxListTile(
-                        title: Text(cal.name ?? 'Calendar'),
-                        value: isSelected,
-                        onChanged: (val) {
-                          controller.toggleCalendarSelection(id, val ?? false);
-                        },
-                      );
-                    }),
                   ],
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
@@ -208,8 +213,22 @@ class CalendarPage extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(next.title),
-      subtitle: Text('${_formatDate(next.start)} · ${_formatTimeRange(next)}'),
-      trailing: Text(next.location.isNotEmpty ? next.location : ''),
+      subtitle: Text(
+        '${_formatDate(next.start)} | ${_formatTimeRange(next)}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: next.location.isEmpty
+          ? null
+          : SizedBox(
+              width: 120,
+              child: Text(
+                next.location,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+              ),
+            ),
     );
   }
 
@@ -217,7 +236,7 @@ class CalendarPage extends StatelessWidget {
     final now = DateTime.now();
     final start = now.add(Duration(days: controller.windowStartOffsetDays.value));
     final end = start.add(Duration(days: controller.windowSpanDays.value));
-    return '${_formatDate(start)} → ${_formatDate(end)}';
+    return '${_formatDate(start)} - ${_formatDate(end)}';
   }
 
   String _formatDate(DateTime dt) =>
@@ -229,6 +248,98 @@ class CalendarPage extends StatelessWidget {
     String fmt(DateTime dt) => '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     return '${fmt(start)}-${fmt(end)}';
   }
+}
+
+String _calendarSelectionLabel(
+  List<Calendar> calendars,
+  Set<String> selectedIds,
+) {
+  if (selectedIds.isEmpty) return 'Select calendars';
+  final names = <String>[];
+  for (final cal in calendars) {
+    final id = cal.id ?? '';
+    if (selectedIds.contains(id)) {
+      names.add(cal.name ?? 'Calendar');
+    }
+  }
+  if (names.isEmpty) return 'Select calendars';
+  final joined = names.join(', ');
+  return 'Calendars (${selectedIds.length}): $joined';
+}
+
+Future<void> _showCalendarPicker(
+  BuildContext context,
+  CalendarController controller,
+) async {
+  final calendars = controller.calendars;
+  if (calendars.isEmpty) return;
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: DraggableScrollableSheet(
+            expand: false,
+            builder: (context, scrollController) {
+              return Obx(() {
+                final selectedIds = controller.selectedCalendarIds;
+                return SingleChildScrollView(
+                  controller: scrollController,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Choose calendars',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () {
+                              controller.selectAllCalendars(calendars);
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Check all'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              controller.clearCalendarSelection();
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Uncheck all'),
+                          ),
+                        ],
+                      ),
+                      const Divider(),
+                      ...calendars.map((cal) {
+                        final id = cal.id ?? '';
+                        final isSelected = selectedIds.contains(id);
+                        return CheckboxListTile(
+                          title: Text(cal.name ?? 'Calendar'),
+                          value: isSelected,
+                          onChanged: (val) {
+                            controller.toggleCalendarSelection(id, val ?? false);
+                          },
+                        );
+                      }),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Done'),
+                      ),
+                    ],
+                  ),
+                );
+              });
+            },
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _SectionCard extends StatelessWidget {
