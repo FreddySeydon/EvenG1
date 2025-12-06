@@ -361,92 +361,91 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (BleManager.get().getConnectionStatus() == 'Not connected')
+                blePairedList(),
+              const SizedBox(height: 16),
               // Notification permission status
-              InkWell(
-                onTap: _requestNotificationPermission,
-                borderRadius: BorderRadius.circular(5),
-                child: Container(
-                  height: 50,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: _notificationAccessEnabled ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    children: [
-                      Icon(
-                        _notificationAccessEnabled ? Icons.notifications_active : Icons.notifications_off,
-                        color: _notificationAccessEnabled ? Colors.green : Colors.orange,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _notificationAccessEnabled 
-                              ? 'Notifications: Enabled' 
-                              : 'Tap to enable notification forwarding',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: _notificationAccessEnabled ? Colors.green.shade700 : Colors.orange.shade700,
-                          ),
-                        ),
-                      ),
-                      if (!_notificationAccessEnabled)
-                        const Icon(Icons.arrow_forward_ios, size: 16),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Notification whitelist management
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const NotificationWhitelistPage(),
+              if (!_notificationAccessEnabled) ...[
+                InkWell(
+                  onTap: _requestNotificationPermission,
+                  borderRadius: BorderRadius.circular(5),
+                  child: Container(
+                    height: 50,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(5),
                     ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(5),
-                child: Container(
-                  height: 50,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.filter_list,
-                        color: Colors.blue,
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          'Manage notification whitelist',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.blue,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.notifications_off, color: Colors.orange),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Set up notification permissions',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.orange,
+                            ),
                           ),
                         ),
-                      ),
-                      const Icon(Icons.arrow_forward_ios, size: 16),
-                    ],
+                        const Icon(Icons.arrow_forward_ios, size: 16),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
+              // Notification whitelist management
+              if (_notificationAccessEnabled) ...[
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const NotificationWhitelistPage(),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(5),
+                  child: Container(
+                    height: 50,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.filter_list,
+                          color: Colors.blue,
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Manage notification whitelist',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               const AddonInstalledList(),
               const SizedBox(height: 8),
               const AddonDashboardSection(),
               const SizedBox(height: 8),
-              if (BleManager.get().getConnectionStatus() == 'Not connected')
-                blePairedList(),
               if (BleManager.get().isConnected)
                 GestureDetector(
                   onTap: () async {
