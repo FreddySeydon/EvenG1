@@ -259,7 +259,7 @@ String _calendarSelectionLabel(
   for (final cal in calendars) {
     final id = cal.id ?? '';
     if (selectedIds.contains(id)) {
-      names.add(cal.name ?? 'Calendar');
+      names.add(_calendarDisplayName(cal));
     }
   }
   if (names.isEmpty) return 'Select calendars';
@@ -318,7 +318,7 @@ Future<void> _showCalendarPicker(
                         final id = cal.id ?? '';
                         final isSelected = selectedIds.contains(id);
                         return CheckboxListTile(
-                          title: Text(cal.name ?? 'Calendar'),
+                          title: Text(_calendarDisplayName(cal)),
                           value: isSelected,
                           onChanged: (val) {
                             controller.toggleCalendarSelection(id, val ?? false);
@@ -370,4 +370,11 @@ class _SectionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _calendarDisplayName(Calendar cal) {
+  final name = (cal.name ?? 'Calendar').trim();
+  final account = (cal.accountName ?? '').trim();
+  if (account.isEmpty) return name.isEmpty ? 'Calendar' : name;
+  return '${name.isEmpty ? 'Calendar' : name} ($account)';
 }

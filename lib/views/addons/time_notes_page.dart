@@ -520,7 +520,7 @@ String _calendarSelectionLabel(
   for (final cal in calendars) {
     final id = cal.id ?? '';
     if (selectedIds.contains(id)) {
-      names.add(cal.name ?? 'Calendar');
+      names.add(_calendarDisplayName(cal));
     }
   }
   if (names.isEmpty) return 'Select calendars';
@@ -532,7 +532,7 @@ String _windowDates(CalendarController controller) {
   final now = DateTime.now();
   final start = now.add(Duration(days: controller.windowStartOffsetDays.value));
   final end = start.add(Duration(days: controller.windowSpanDays.value));
-  return '${_formatEventDate(start)} → ${_formatEventDate(end)}';
+  return '${_formatEventDate(start)} - ${_formatEventDate(end)}';
 }
 
 class _CalendarPayload {
@@ -639,7 +639,7 @@ Future<void> _showCalendarPicker(
                         final id = cal.id ?? '';
                         final isSelected = selectedIds.contains(id);
                         return CheckboxListTile(
-                          title: Text(cal.name ?? 'Calendar'),
+                          title: Text(_calendarDisplayName(cal)),
                           value: isSelected,
                           onChanged: (val) {
                             controller.toggleCalendarSelection(id, val ?? false);
@@ -1185,3 +1185,11 @@ Future<int?> _pickTime(BuildContext context, int initialMinutes) async {
   if (picked == null) return null;
   return picked.hour * 60 + picked.minute;
 }
+
+String _calendarDisplayName(Calendar cal) {
+  final name = (cal.name ?? 'Calendar').trim();
+  final account = (cal.accountName ?? '').trim();
+  if (account.isEmpty) return name.isEmpty ? 'Calendar' : name;
+  return '${name.isEmpty ? 'Calendar' : name} ($account)';
+}
+
