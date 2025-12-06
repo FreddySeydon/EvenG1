@@ -7,6 +7,7 @@ import '../controllers/time_notes_controller.dart';
 import '../models/time_note.dart';
 import 'dashboard_note_service.dart';
 import 'proto.dart';
+import 'world_time_service.dart';
 
 /// Background helper that watches active time-aware notes and automatically
 /// sends the current one to the G1 dashboard when its window starts.
@@ -15,6 +16,8 @@ class TimeNotesScheduler extends GetxService {
   StreamSubscription? _activeSub;
   StreamSubscription? _notesSub;
   Timer? _tick;
+  Timer? _worldTimeTick;
+  Timer? _worldTimeNoteTick;
 
   /// Tracks the last send token per note to avoid spamming during an active window.
   /// For weekly notes: stores YYYY-MM-DD to send once per day.
@@ -31,6 +34,8 @@ class TimeNotesScheduler extends GetxService {
     _notesSub = _controller.notes.listen((_) => _handleActive());
     // Periodic safety check (covers reconnection while window is active).
     _tick = Timer.periodic(const Duration(minutes: 1), (_) => _handleActive());
+    // Minute ticks to keep world time fresh when enabled (aligned to minute boundary).
+    _scheduleWorldTimeTicks();
     _handleActive();
   }
 
@@ -39,6 +44,8 @@ class TimeNotesScheduler extends GetxService {
     _activeSub?.cancel();
     _notesSub?.cancel();
     _tick?.cancel();
+    _worldTimeTick?.cancel();
+    _worldTimeNoteTick?.cancel();
     super.onClose();
   }
 
@@ -59,9 +66,10 @@ class TimeNotesScheduler extends GetxService {
         await Proto.setDashboardMode(modeId: 0);
         await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
         await Future.delayed(const Duration(milliseconds: 300));
+        final payload = await _notePayload(general);
         final sent = await DashboardNoteService.instance.sendDashboardNote(
-          title: general.title.isEmpty ? 'Note' : general.title,
-          text: general.content,
+          title: payload.title,
+          text: payload.text,
           noteNumber: 1,
         );
         await Future.delayed(const Duration(milliseconds: 300));
@@ -71,6 +79,26 @@ class TimeNotesScheduler extends GetxService {
           _lastGeneralNoteId = general.id;
         }
         _lastActiveNoteId = null;
+        _lastSent.removeWhere((_, __) => true);
+        return;
+      }
+
+      // No general note: if world time is enabled, show it solo.
+      final world = await _worldTimeOnlyPayload();
+      if (world != null) {
+        await Proto.setDashboardMode(modeId: 0);
+        await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+        await Future.delayed(const Duration(milliseconds: 300));
+        await DashboardNoteService.instance.sendDashboardNote(
+          title: world.title,
+          text: world.text,
+          noteNumber: 1,
+        );
+        await Future.delayed(const Duration(milliseconds: 300));
+        await Proto.setDashboardMode(modeId: 0);
+        await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+        _lastActiveNoteId = null;
+        _lastGeneralNoteId = null;
         _lastSent.removeWhere((_, __) => true);
         return;
       }
@@ -102,9 +130,10 @@ class TimeNotesScheduler extends GetxService {
     await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
     await Future.delayed(const Duration(milliseconds: 300));
 
+    final payload = await _notePayload(note);
     final success = await DashboardNoteService.instance.sendDashboardNote(
-      title: note.title.isEmpty ? 'Note' : note.title,
-      text: note.content,
+      title: payload.title,
+      text: payload.text,
       noteNumber: 1,
     );
     await Future.delayed(const Duration(milliseconds: 300));
@@ -145,4 +174,102 @@ class TimeNotesScheduler extends GetxService {
 
   String _todayString(DateTime now) =>
       '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+  Future<_NotePayload> _notePayload(TimeNote note) async {
+    final svc = WorldTimeService.instance;
+    await svc.ensureReady();
+    if (!svc.enabled) {
+      return _NotePayload(
+        title: note.title.isEmpty ? 'Note' : note.title,
+        text: note.content,
+      );
+    }
+    final worldTitle = svc.formattedTime();
+    final titleLine = note.title.isNotEmpty ? '${note.title}\n' : '';
+    final body = '$titleLine${note.content}'.trim();
+    return _NotePayload(
+      title: worldTitle,
+      text: body.isEmpty ? note.title : body,
+    );
+  }
+
+  Future<_NotePayload?> _worldTimeOnlyPayload() async {
+    final svc = WorldTimeService.instance;
+    await svc.ensureReady();
+    if (!svc.enabled) return null;
+    return _NotePayload(
+      title: svc.formattedTime(),
+      text: '',
+    );
+  }
+
+  Future<void> _tickWorldTime() async {
+    final svc = WorldTimeService.instance;
+    await svc.ensureReady();
+    if (!svc.enabled) return;
+    if (!BleManager.get().isConnected) return;
+    // Only refresh when no notes are displayed; otherwise _handleActive covers it.
+    if (_controller.activeNotes.isNotEmpty || _controller.generalNotes.isNotEmpty) {
+      return;
+    }
+    final payload = await _worldTimeOnlyPayload();
+    if (payload == null) return;
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+    await Future.delayed(const Duration(milliseconds: 300));
+    await DashboardNoteService.instance.sendDashboardNote(
+      title: payload.title,
+      text: payload.text,
+      noteNumber: 1,
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+  }
+
+  Future<void> _tickWorldTimeWithNote() async {
+    final svc = WorldTimeService.instance;
+    await svc.ensureReady();
+    if (!svc.enabled) return;
+    if (!BleManager.get().isConnected) return;
+    // Only refresh when a note is showing (active or general) so the clock in the title stays fresh.
+    final note = _controller.activeNotes.isNotEmpty
+        ? _controller.activeNotes.first
+        : (_controller.generalNotes.isNotEmpty ? _controller.generalNotes.first : null);
+    if (note == null) return;
+
+    final payload = await _notePayload(note);
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+    await Future.delayed(const Duration(milliseconds: 300));
+    await DashboardNoteService.instance.sendDashboardNote(
+      title: payload.title,
+      text: payload.text,
+      noteNumber: 1,
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+  }
+
+  /// Schedule world-time refreshes aligned to the next minute boundary.
+  void _scheduleWorldTimeTicks() {
+    _worldTimeTick?.cancel();
+    _worldTimeNoteTick?.cancel();
+    final now = DateTime.now();
+    final msUntilNextMinute = 60000 - (now.millisecond + now.second * 1000);
+    Future.delayed(Duration(milliseconds: msUntilNextMinute), () {
+      // Trigger once at the boundary, then every minute.
+      _tickWorldTime();
+      _tickWorldTimeWithNote();
+      _worldTimeTick = Timer.periodic(const Duration(minutes: 1), (_) => _tickWorldTime());
+      _worldTimeNoteTick = Timer.periodic(const Duration(minutes: 1), (_) => _tickWorldTimeWithNote());
+    });
+  }
+}
+
+class _NotePayload {
+  final String title;
+  final String text;
+  _NotePayload({required this.title, required this.text});
 }

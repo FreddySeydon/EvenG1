@@ -12,6 +12,7 @@ import 'package:demo_ai_even/views/even_list_page.dart';
 import 'package:demo_ai_even/views/features_page.dart';
 import 'package:demo_ai_even/views/notification_whitelist_page.dart';
 import 'package:demo_ai_even/controllers/calendar_controller.dart';
+import 'package:demo_ai_even/services/time_notes_scheduler.dart';
 import 'package:demo_ai_even/views/addons/addon_dashboard_section.dart';
 import 'package:demo_ai_even/views/addons/addon_installed_list.dart';
 import 'package:demo_ai_even/views/debug_page.dart';
@@ -110,6 +111,10 @@ class _HomePageState extends State<HomePage> {
           location: '',
           fullSync: true,
         );
+      }
+      // Kick timed/general note scheduler (includes world time hijack) to refresh the note slot.
+      if (Get.isRegistered<TimeNotesScheduler>()) {
+        await Get.find<TimeNotesScheduler>().resendActiveNow();
       }
     } catch (e) {
       print('Error syncing dashboard on connect: $e');
