@@ -1,9 +1,7 @@
 // ignore_for_file: library_private_types_in_public_api
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:demo_ai_even/services/notification_service.dart';
-import 'package:flutter/services.dart';
 
 class NotificationWhitelistPage extends StatefulWidget {
   const NotificationWhitelistPage({super.key});
@@ -13,100 +11,67 @@ class NotificationWhitelistPage extends StatefulWidget {
 }
 
 class _NotificationWhitelistPageState extends State<NotificationWhitelistPage> {
-  static const MethodChannel _methodChannel = MethodChannel('method.bluetooth');
-  
+  final TextEditingController _whitelistSearchCtl = TextEditingController();
+  final TextEditingController _allAppsSearchCtl = TextEditingController();
+
   List<AppInfo> _allApps = [];
   Set<String> _whitelistedPackages = {};
-  bool _showAllApps = false; // Toggle between all apps and whitelisted only
   bool _isLoading = true;
-  String _searchQuery = '';
-  final TextEditingController _searchController = TextEditingController();
+  bool _notificationsEnabled = false;
 
   @override
   void initState() {
     super.initState();
-    _loadWhitelist();
-    _loadInstalledApps();
-    _searchController.addListener(_onSearchChanged);
+    _whitelistSearchCtl.addListener(() => setState(() {}));
+    _allAppsSearchCtl.addListener(() => setState(() {}));
+    _loadState();
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _whitelistSearchCtl.dispose();
+    _allAppsSearchCtl.dispose();
     super.dispose();
   }
 
-  void _onSearchChanged() {
-    setState(() {
-      _searchQuery = _searchController.text.toLowerCase();
-    });
-  }
-
-  Future<void> _loadWhitelist() async {
+  Future<void> _loadState() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final whitelistString = prefs.getString('notification_whitelist') ?? '';
-      
+      final enabled = await NotificationService.instance.checkNotificationPermission();
+      final apps = await NotificationService.instance.getInstalledApps();
+      final whitelist = NotificationService.instance.whitelistedApps;
+      if (!mounted) return;
       setState(() {
-        if (whitelistString.isEmpty) {
-          _whitelistedPackages = {};
-        } else {
-          _whitelistedPackages = whitelistString.split(',').toSet();
-        }
-      });
-      
-      // Update notification service
-      NotificationService.instance.setWhitelistedApps(_whitelistedPackages);
-    } catch (e) {
-      print('Error loading whitelist: $e');
-    }
-  }
-
-  Future<void> _saveWhitelist() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (_whitelistedPackages.isEmpty) {
-        await prefs.remove('notification_whitelist');
-      } else {
-        await prefs.setString('notification_whitelist', _whitelistedPackages.join(','));
-      }
-      
-      // Update notification service
-      NotificationService.instance.setWhitelistedApps(_whitelistedPackages);
-    } catch (e) {
-      print('Error saving whitelist: $e');
-    }
-  }
-
-  Future<void> _loadInstalledApps() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
-    try {
-      final List<dynamic> apps = await _methodChannel.invokeMethod('getInstalledApps') ?? [];
-      
-      setState(() {
-        _allApps = apps.map((app) => AppInfo(
-          packageName: app['packageName'] as String,
-          appName: app['appName'] as String,
-        )).toList();
+        _notificationsEnabled = enabled;
+        _allApps = apps;
+        _whitelistedPackages = whitelist;
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading installed apps: $e');
-      setState(() {
-        _isLoading = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading apps: $e')),
-        );
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading apps: $e')),
+      );
     }
   }
 
-  void _toggleAppWhitelist(String packageName) {
+  Future<void> _toggleEnabled(bool value) async {
+    if (value) {
+      final ok = await NotificationService.instance.requestNotificationPermission();
+      if (!mounted) return;
+      if (ok) {
+        await NotificationService.instance.startListening();
+        if (mounted) setState(() => _notificationsEnabled = true);
+      }
+    } else {
+      NotificationService.instance.stopListening();
+      if (mounted) setState(() => _notificationsEnabled = false);
+    }
+  }
+
+  void _toggleApp(String packageName) {
     setState(() {
       if (_whitelistedPackages.contains(packageName)) {
         _whitelistedPackages.remove(packageName);
@@ -114,186 +79,232 @@ class _NotificationWhitelistPageState extends State<NotificationWhitelistPage> {
         _whitelistedPackages.add(packageName);
       }
     });
-    _saveWhitelist();
+    NotificationService.instance.setWhitelistedApps(_whitelistedPackages);
   }
 
-  void _clearWhitelist() {
-    setState(() {
-      _whitelistedPackages.clear();
-    });
-    _saveWhitelist();
+  List<AppInfo> get _whitelistFiltered {
+    final query = _whitelistSearchCtl.text.toLowerCase();
+    final list = _allApps.where((a) => _whitelistedPackages.contains(a.packageName)).toList();
+    if (query.isEmpty) return list;
+    return list
+        .where((a) =>
+            a.appName.toLowerCase().contains(query) ||
+            a.packageName.toLowerCase().contains(query))
+        .toList();
   }
 
-  List<AppInfo> get _filteredApps {
-    var apps = _showAllApps ? _allApps : _allApps.where((app) => _whitelistedPackages.contains(app.packageName)).toList();
-    
-    if (_searchQuery.isNotEmpty) {
-      apps = apps.where((app) => 
-        app.appName.toLowerCase().contains(_searchQuery) ||
-        app.packageName.toLowerCase().contains(_searchQuery)
-      ).toList();
+  List<AppInfo> get _allFiltered {
+    final query = _allAppsSearchCtl.text.toLowerCase();
+
+    const pinned = [
+      'com.whatsapp',
+      'com.facebook.orca', // Messenger
+      'com.instagram.android',
+      'com.google.android.gm', // Gmail
+      'com.google.android.apps.messaging', // Messages
+      'com.google.android.dialer', // Phone
+      'com.android.contacts',
+      'com.snapchat.android',
+      'com.twitter.android', // X
+      'com.slack', // Slack
+      'com.microsoft.teams',
+      'com.discord',
+      'com.outlook.Z7', // Outlook variant
+      'com.google.android.youtube',
+      'com.netflix.mediaclient',
+    ];
+
+    List<AppInfo> list = _allApps;
+    if (query.isNotEmpty) {
+      list = list
+          .where((a) =>
+              a.appName.toLowerCase().contains(query) ||
+              a.packageName.toLowerCase().contains(query))
+          .toList();
     }
-    
-    return apps;
+
+    // Promote pinned apps to the top (preserve their original order otherwise)
+    final pinnedSet = pinned.toSet();
+    final pinnedApps = list.where((a) => pinnedSet.contains(a.packageName)).toList();
+    final rest = list.where((a) => !pinnedSet.contains(a.packageName)).toList();
+    return [...pinnedApps, ...rest];
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Notification Whitelist'),
-        actions: [
-          // Toggle between all apps and whitelisted only
-          IconButton(
-            icon: Icon(_showAllApps ? Icons.checklist : Icons.list),
-            tooltip: _showAllApps ? 'Show Whitelisted Only' : 'Show All Apps',
-            onPressed: () {
-              setState(() {
-                _showAllApps = !_showAllApps;
-              });
-            },
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Notification whitelist'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Whitelist'),
+              Tab(text: 'All Apps'),
+            ],
           ),
-          // Clear whitelist
-          if (_whitelistedPackages.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.clear_all),
-              tooltip: 'Clear Whitelist',
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Clear Whitelist'),
-                    content: const Text('Remove all apps from whitelist? (This will allow all notifications)'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _clearWhitelist();
-                        },
-                        child: const Text('Clear'),
-                      ),
-                    ],
-                  ),
-                );
-              },
+        ),
+        body: Column(
+          children: [
+            SwitchListTile(
+              title: const Text('Enable notification forwarding'),
+              subtitle: Text(_notificationsEnabled
+                  ? 'Notifications will be shown on the glasses'
+                  : 'Notifications are disabled'),
+              value: _notificationsEnabled,
+              onChanged: _toggleEnabled,
             ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Search bar
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search apps...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      children: [
+                        _buildWhitelistTab(context),
+                        _buildAllAppsTab(),
+                      ],
+                    ),
             ),
-          ),
-          // Info banner
-          Container(
-            width: double.infinity,
-            color: Colors.blue.withOpacity(0.1),
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, color: Colors.blue),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _whitelistedPackages.isEmpty
-                        ? 'All notifications will be forwarded'
-                        : '${_whitelistedPackages.length} app(s) whitelisted',
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // App list
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredApps.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.apps,
-                              size: 64,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              _searchQuery.isNotEmpty
-                                  ? 'No apps found matching "$_searchQuery"'
-                                  : _showAllApps
-                                      ? 'No apps found'
-                                      : 'No apps in whitelist',
-                              style: TextStyle(color: Colors.grey[600]),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _filteredApps.length,
-                        itemBuilder: (context, index) {
-                          final app = _filteredApps[index];
-                          final isWhitelisted = _whitelistedPackages.contains(app.packageName);
-                          
-                          return ListTile(
-                            title: Text(app.appName),
-                            subtitle: Text(
-                              app.packageName,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            trailing: Switch(
-                              value: isWhitelisted,
-                              onChanged: (value) {
-                                _toggleAppWhitelist(app.packageName);
-                              },
-                            ),
-                            onTap: () {
-                              _toggleAppWhitelist(app.packageName);
-                            },
-                          );
-                        },
-                      ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+
+  Widget _buildWhitelistTab(BuildContext context) {
+    final items = _whitelistFiltered;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _whitelistSearchCtl,
+            decoration: InputDecoration(
+              hintText: 'Search whitelisted apps',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _whitelistSearchCtl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => _whitelistSearchCtl.clear(),
+                    )
+                  : null,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _whitelistedPackages.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('All notifications are allowed.'),
+                      const SizedBox(height: 8),
+                      Builder(
+                        builder: (innerCtx) => TextButton(
+                          onPressed: () => DefaultTabController.of(innerCtx)?.animateTo(1),
+                          child: const Text('Browse all apps'),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : items.isEmpty
+                  ? const Center(child: Text('No whitelisted apps match your search.'))
+                  : ListView.builder(
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final app = items[index];
+                        return ListTile(
+                          title: Text(app.appName),
+                          subtitle: Text(app.packageName, style: const TextStyle(fontSize: 12)),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: () => _toggleApp(app.packageName),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAllAppsTab() {
+    final items = _allFiltered;
+    const pinnedPackages = {
+      'com.whatsapp',
+      'com.facebook.orca',
+      'com.instagram.android',
+      'com.google.android.gm',
+      'com.google.android.apps.messaging',
+      'com.google.android.dialer',
+      'com.android.contacts',
+      'com.snapchat.android',
+      'com.twitter.android',
+      'com.slack',
+      'com.microsoft.teams',
+      'com.discord',
+      'org.telegram.messenger',
+      'com.outlook.Z7',
+      'com.google.android.youtube',
+      'com.netflix.mediaclient',
+    };
+    final pinned = items.where((a) => pinnedPackages.contains(a.packageName)).toList();
+    final rest = items.where((a) => !pinnedPackages.contains(a.packageName)).toList();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _allAppsSearchCtl,
+            decoration: InputDecoration(
+              hintText: 'Search apps',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _allAppsSearchCtl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => _allAppsSearchCtl.clear(),
+                    )
+                  : null,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? const Center(child: Text('No apps found.'))
+              : ListView(
+                  children: [
+                    if (pinned.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Text(
+                          'Suggested',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+                        ),
+                      ),
+                      ...pinned.map(_appTile),
+                      const Divider(height: 1),
+                    ],
+                    ...rest.map(_appTile),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _appTile(AppInfo app) {
+    final isWhitelisted = _whitelistedPackages.contains(app.packageName);
+    return ListTile(
+      title: Text(app.appName),
+      subtitle: Text(app.packageName, style: const TextStyle(fontSize: 12)),
+      trailing: Switch(
+        value: isWhitelisted,
+        onChanged: (_) => _toggleApp(app.packageName),
+      ),
+      onTap: () => _toggleApp(app.packageName),
+    );
+  }
 }
-
-class AppInfo {
-  final String packageName;
-  final String appName;
-
-  AppInfo({
-    required this.packageName,
-    required this.appName,
-  });
-}
-

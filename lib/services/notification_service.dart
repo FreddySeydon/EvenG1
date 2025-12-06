@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/services/proto.dart';
 import 'package:demo_ai_even/services/evenai.dart';
 import 'package:demo_ai_even/views/features/notification/notify_model.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
@@ -735,6 +735,22 @@ class NotificationService {
   /// Get current whitelist
   Set<String> get whitelistedApps => Set.from(_whitelistedApps);
 
+  /// Get installed apps (package + name) via platform channel
+  Future<List<AppInfo>> getInstalledApps() async {
+    try {
+      final List<dynamic> apps = await _methodChannel.invokeMethod('getInstalledApps') ?? [];
+      return apps
+          .map((app) => AppInfo(
+                packageName: app['packageName'] as String,
+                appName: app['appName'] as String,
+              ))
+          .toList();
+    } catch (e) {
+      print('NotificationService: Error loading installed apps: $e');
+      return [];
+    }
+  }
+
   Future<void> handleDeviceWhitelistAdd(String appIdentifier, String displayName) async {
     print('NotificationService: Device requested whitelist add for $appIdentifier ($displayName)');
     addWhitelistedApp(appIdentifier, displayName: displayName);
@@ -768,6 +784,13 @@ class NotificationService {
       return;
     }
 
+    // When whitelist is empty we allow all notifications; skip sending an empty
+    // list to avoid accidentally disabling notifications on the device.
+    if (_whitelistedApps.isEmpty) {
+      print('NotificationService: Whitelist empty -> allow all (no device whitelist push)');
+      return;
+    }
+
     try {
       final apps = _whitelistedApps.map((id) => {
             'id': id,
@@ -781,7 +804,7 @@ class NotificationService {
         'ios_mail_enable': false,
         'app': {
           'list': apps,
-          'enable': apps.isNotEmpty,
+          'enable': true,
         },
       };
 
@@ -833,4 +856,14 @@ class NotificationService {
       _whitelistedAppNames.clear();
     }
   }
+}
+
+class AppInfo {
+  final String packageName;
+  final String appName;
+
+  AppInfo({
+    required this.packageName,
+    required this.appName,
+  });
 }
