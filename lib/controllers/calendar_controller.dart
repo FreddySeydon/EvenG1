@@ -220,16 +220,17 @@ class CalendarController extends GetxController {
     final upcoming = events.where((e) => e.start.isAfter(now)).toList()
       ..sort((a, b) => a.start.compareTo(b.start));
     final next = upcoming.isNotEmpty ? upcoming.first : events.first;
-    final timeLabel = _formatTimeLabel(next);
+    final payload = _buildPanePayload(next);
     return CalendarService.instance.sendCalendarItem(
-      name: next.title,
-      time: timeLabel,
-      location: next.location,
+      name: payload.title,
+      time: payload.time,
+      location: payload.location,
+      titleOverride: payload.titleOverride,
       fullSync: fullSync,
     );
   }
 
-  String _formatTimeLabel(DeviceCalendarEvent event) {
+  _PanePayload _buildPanePayload(DeviceCalendarEvent event) {
     final now = DateTime.now();
     final isToday = event.start.year == now.year &&
         event.start.month == now.month &&
@@ -240,11 +241,40 @@ class CalendarController extends GetxController {
         event.start.day != now.day;
     final datePart = isToday
         ? 'Today'
-        : (isTomorrow
+        : isTomorrow
             ? 'Tomorrow'
-            : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}');
+            : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
     final timePart =
         '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
-    return '$datePart  $timePart';
+
+    String trunc(String input, int max) {
+      if (input.length <= max) return input;
+      if (max <= 3) return input.substring(0, max);
+      return input.substring(0, max - 3) + '...';
+    }
+
+    final title = trunc(event.title, 30);
+    final location = trunc(event.location, 15);
+    final timeLine = location.isNotEmpty ? '$datePart $timePart | $location' : '$datePart $timePart';
+
+    return _PanePayload(
+      title: title,
+      time: timeLine,
+      location: '',
+      titleOverride: null,
+    );
   }
+}
+
+class _PanePayload {
+  final String title;
+  final String time;
+  final String location;
+  final String? titleOverride;
+  _PanePayload({
+    required this.title,
+    required this.time,
+    required this.location,
+    this.titleOverride,
+  });
 }

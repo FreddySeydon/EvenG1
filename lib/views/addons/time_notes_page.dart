@@ -386,11 +386,11 @@ class _CalendarSection extends StatelessWidget {
       );
       return;
     }
-    final timeLabel = _formatCalendarTime(event);
+    final payload = _formatCalendarPayload(event);
     final ok = await CalendarService.instance.sendCalendarItem(
-      name: event.title,
-      time: timeLabel,
-      location: event.location,
+      name: payload.title,
+      time: payload.timeLine,
+      location: payload.location,
       fullSync: true,
     );
     if (!context.mounted) return;
@@ -422,12 +422,12 @@ class _CalendarSection extends StatelessWidget {
       orElse: () => events.first,
     );
 
-    final timeLabel = _formatCalendarTime(next);
+    final payload = _formatCalendarPayload(next);
 
     await CalendarService.instance.sendCalendarItem(
-      name: next.title,
-      time: timeLabel,
-      location: next.location,
+      name: payload.title,
+      time: payload.timeLine,
+      location: payload.location,
       fullSync: true,
     );
   }
@@ -535,7 +535,18 @@ String _windowDates(CalendarController controller) {
   return '${_formatEventDate(start)} → ${_formatEventDate(end)}';
 }
 
-String _formatCalendarTime(DeviceCalendarEvent event) {
+class _CalendarPayload {
+  final String title;
+  final String timeLine;
+  final String location;
+  _CalendarPayload({
+    required this.title,
+    required this.timeLine,
+    required this.location,
+  });
+}
+
+_CalendarPayload _formatCalendarPayload(DeviceCalendarEvent event) {
   final now = DateTime.now();
   final isToday = event.start.year == now.year &&
       event.start.month == now.month &&
@@ -549,11 +560,32 @@ String _formatCalendarTime(DeviceCalendarEvent event) {
       ? 'Tomorrow'
       : isToday
           ? 'Today'
-      : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
+          : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
   final timeLabel =
       '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
 
-  return '$dateLabel  $timeLabel';
+  String trunc(String input, int max) {
+    if (input.length <= max) return input;
+    if (max <= 3) return input.substring(0, max);
+    return input.substring(0, max - 3) + '...';
+  }
+
+  final title = trunc(event.title, 30);
+  final location = trunc(event.location, 15);
+  final timeLine =
+      location.isNotEmpty ? '$dateLabel $timeLabel | $location' : '$dateLabel $timeLabel';
+
+  return _CalendarPayload(
+    title: title,
+    timeLine: timeLine,
+    location: '',
+  );
+}
+
+String _truncate(String input, int maxChars) {
+  if (input.length <= maxChars) return input;
+  if (maxChars <= 1) return input.substring(0, maxChars);
+  return input.substring(0, maxChars - 1) + '…';
 }
 
 Future<void> _showCalendarPicker(
