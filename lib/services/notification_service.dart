@@ -415,52 +415,47 @@ class NotificationService {
 
   /// Check if notification is a call notification
   bool _isCallNotification(NotifyModel notify, Map<String, dynamic>? rawData) {
-    // Hardcode to false for testing
-    return false;
-
-    // Check notification category (if available)
+    // 1) Native category hint
     final category = rawData?['category'] as String?;
-    if (category == 'call') {
+    if (category != null && category.toLowerCase() == 'call') {
       return true;
     }
-    
-    // Check app identifier for common phone/dialer packages
+
+    // 2) Package name hint
     final appId = notify.appIdentifier.toLowerCase();
-    final phonePackagePatterns = [
+    const phonePackagePatterns = [
       'phone',
       'dialer',
       'telecom',
       'incallui',
       'call',
     ];
-    
     if (phonePackagePatterns.any((pattern) => appId.contains(pattern))) {
       return true;
     }
-    
-    // Check title/text for call-related keywords
-    final titleLower = notify.title.toLowerCase();
-    final messageLower = notify.message.toLowerCase();
-    final subTitleLower = notify.subTitle.toLowerCase();
-    final displayNameLower = notify.displayName.toLowerCase();
-    
-    final callKeywords = [
-      'incoming call',
-      'call',
-      'calling',
-      'phone call',
-      'ringing',
-    ];
-    
-    if (callKeywords.any((keyword) => 
-        titleLower.contains(keyword) || 
-        messageLower.contains(keyword) || 
-        subTitleLower.contains(keyword) ||
-        displayNameLower.contains(keyword))) {
+
+    // 3) Content keywords
+    bool hasCallKeywords(String value) {
+      final lower = value.toLowerCase();
+      const keywords = [
+        'incoming call',
+        'call',
+        'calling',
+        'phone call',
+        'ringing',
+      ];
+      return keywords.any(lower.contains);
+    }
+
+    if (hasCallKeywords(notify.title) ||
+        hasCallKeywords(notify.message) ||
+        hasCallKeywords(notify.subTitle) ||
+        hasCallKeywords(notify.displayName)) {
       return true;
     }
-    
+
     return false;
+
   }
 
   /// Extract caller info lines (name/number) from a call notification
@@ -839,4 +834,3 @@ class NotificationService {
     }
   }
 }
-
