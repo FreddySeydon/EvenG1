@@ -12,6 +12,7 @@ import 'package:demo_ai_even/models/calendar_item.dart';
 import 'package:demo_ai_even/views/even_list_page.dart';
 import 'package:demo_ai_even/views/features_page.dart';
 import 'package:demo_ai_even/views/notification_whitelist_page.dart';
+import 'package:demo_ai_even/controllers/calendar_controller.dart';
 import 'package:demo_ai_even/views/addons/addon_dashboard_section.dart';
 import 'package:demo_ai_even/views/addons/addon_installed_list.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +62,10 @@ class _HomePageState extends State<HomePage> {
         _syncDashboardOnConnect();
       }
     };
+    // If already connected on launch (native service restored), sync immediately.
+    if (BleManager.get().isConnected) {
+      _syncDashboardOnConnect();
+    }
     _checkNotificationPermission();
   }
   
@@ -83,13 +88,32 @@ class _HomePageState extends State<HomePage> {
         weatherIconId: 0x00,
         temperature: 0,
       );
-      // Push a placeholder calendar item so the pane is populated and avoid "Loading".
-      await CalendarService.instance.sendCalendarItem(
-        name: 'No upcoming events',
-        time: '',
-        location: '',
-        fullSync: true,
-      );
+      // Try to populate the calendar pane with the next event if available.
+      bool sent = false;
+      try {
+        if (Get.isRegistered<CalendarController>()) {
+          final calendar = Get.find<CalendarController>();
+          if (calendar.hasPermission.value) {
+            // Ensure events are loaded before attempting to send.
+            if (calendar.events.isEmpty) {
+              await calendar.refreshCalendarsAndEvents();
+            }
+            sent = await calendar.sendNextEventToGlasses(fullSync: true);
+          }
+        }
+      } catch (e) {
+        print('Error sending next calendar event on connect: $e');
+      }
+
+      if (!sent) {
+        // Fallback placeholder if no events or no permission.
+        await CalendarService.instance.sendCalendarItem(
+          name: 'No upcoming events',
+          time: '',
+          location: '',
+          fullSync: true,
+        );
+      }
     } catch (e) {
       print('Error syncing dashboard on connect: $e');
     }
