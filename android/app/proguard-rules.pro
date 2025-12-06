@@ -1,0 +1,4 @@
+-keep class com.builttoroam.devicecalendar.** { *; }
+-keep class com.builttoroam.devicecalendar.models.** { *; }
+-keep class com.builttoroam.devicecalendar.common.** { *; }
+-dontwarn com.builttoroam.devicecalendar.**
