@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:get/get.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,6 +19,8 @@ class CalendarController extends GetxController {
   final windowStartOffsetDays = 0.obs;
   final windowSpanDays = 14.obs;
   final autoSendNextEvent = false.obs;
+  Timer? _periodicRefresh;
+  Timer? _nextBoundaryTimer;
 
   static const _prefSelectedIds = 'calendar_selected_ids';
   static const _prefAutoSend = 'calendar_auto_send_next';
@@ -37,6 +41,7 @@ class CalendarController extends GetxController {
       await _loadSelectedCalendars();
       await _loadAutoSendPref();
       await refreshCalendarsAndEvents();
+      _startPeriodicRefresh();
     }
   }
 
@@ -48,6 +53,7 @@ class CalendarController extends GetxController {
       hasPermission.value = granted;
       if (granted) {
         await refreshCalendarsAndEvents();
+        _startPeriodicRefresh();
       }
     } catch (e) {
       errorMessage.value = 'Failed to request calendar permission: $e';
@@ -78,6 +84,7 @@ class CalendarController extends GetxController {
       if (autoSendNextEvent.value && BleManager.get().isConnected) {
         await sendNextEventToGlasses(fullSync: true);
       }
+      _scheduleNextBoundaryTrigger();
     } catch (e) {
       errorMessage.value = 'Failed to load calendar events: $e';
     } finally {
@@ -176,6 +183,21 @@ class CalendarController extends GetxController {
     }
   }
 
+  void _startPeriodicRefresh() {
+    _periodicRefresh?.cancel();
+    _periodicRefresh = Timer.periodic(const Duration(minutes: 10), (_) async {
+      if (!hasPermission.value) return;
+      await refreshCalendarsAndEvents();
+    });
+  }
+
+  @override
+  void onClose() {
+    _periodicRefresh?.cancel();
+    _cancelBoundaryTimer();
+    super.onClose();
+  }
+
   Future<void> setAutoSendNextEvent(bool value) async {
     autoSendNextEvent.value = value;
     try {
@@ -186,6 +208,8 @@ class CalendarController extends GetxController {
     }
     if (value) {
       await refreshCalendarsAndEvents();
+    } else {
+      _cancelBoundaryTimer();
     }
   }
 
@@ -219,8 +243,15 @@ class CalendarController extends GetxController {
     final now = DateTime.now();
     final upcoming = events.where((e) => e.start.isAfter(now)).toList()
       ..sort((a, b) => a.start.compareTo(b.start));
-    final next = upcoming.isNotEmpty ? upcoming.first : events.first;
-    final payload = _buildPanePayload(next);
+    if (upcoming.isEmpty) {
+      return CalendarService.instance.sendCalendarItem(
+        name: 'No upcoming events',
+        time: '',
+        location: '',
+        fullSync: fullSync,
+      );
+    }
+    final payload = _buildPanePayload(upcoming.first);
     return CalendarService.instance.sendCalendarItem(
       name: payload.title,
       time: payload.time,
@@ -228,6 +259,29 @@ class CalendarController extends GetxController {
       titleOverride: payload.titleOverride,
       fullSync: fullSync,
     );
+  }
+
+  void _scheduleNextBoundaryTrigger() {
+    _cancelBoundaryTimer();
+    if (!autoSendNextEvent.value) return;
+    if (events.isEmpty) return;
+    final now = DateTime.now();
+    final upcoming = events.where((e) => e.start.isAfter(now)).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    if (upcoming.isEmpty) return;
+    final nextStart = upcoming.first.start;
+    final delay = nextStart.difference(now) + const Duration(seconds: 2);
+    final effectiveDelay = delay.isNegative ? const Duration(seconds: 2) : delay;
+    _nextBoundaryTimer = Timer(effectiveDelay, () async {
+      if (!hasPermission.value) return;
+      if (!autoSendNextEvent.value) return;
+      await refreshCalendarsAndEvents();
+    });
+  }
+
+  void _cancelBoundaryTimer() {
+    _nextBoundaryTimer?.cancel();
+    _nextBoundaryTimer = null;
   }
 
   _PanePayload _buildPanePayload(DeviceCalendarEvent event) {

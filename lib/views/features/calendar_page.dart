@@ -209,7 +209,10 @@ class CalendarPage extends StatelessWidget {
     final sorted = [...events]..sort((a, b) => a.start.compareTo(b.start));
     final now = DateTime.now();
     final upcoming = sorted.where((e) => e.start.isAfter(now)).toList();
-    final next = upcoming.isNotEmpty ? upcoming.first : sorted.first;
+    if (upcoming.isEmpty) {
+      return const Text('No upcoming events in the current window.');
+    }
+    final next = upcoming.first;
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(next.title),

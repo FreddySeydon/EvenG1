@@ -17,7 +17,7 @@ class CalendarItem {
   });
 
   Uint8List buildPacket() {
-    // Fixed bytes observed in Fahrplan’s implementation.
+    // Fixed bytes observed in Fahrplan's implementation.
     final bytes = <int>[
       0x00,
       0x6d,
@@ -34,22 +34,25 @@ class CalendarItem {
 
     // Tag 0x01: event name (allows custom title formatting)
     final title = titleOverride ?? name;
+    final titleBytes = utf8.encode(title);
     bytes.add(0x01);
-    bytes.add(title.length);
-    bytes.addAll(utf8.encode(title));
+    bytes.add(titleBytes.length);
+    bytes.addAll(titleBytes);
 
     // Tag 0x02: time string
     if (time.isNotEmpty) {
+      final timeBytes = utf8.encode(time);
       bytes.add(0x02);
-      bytes.add(time.length);
-      bytes.addAll(utf8.encode(time));
+      bytes.add(timeBytes.length);
+      bytes.addAll(timeBytes);
     }
 
     // Tag 0x03: location string
     if (location.isNotEmpty) {
+      final locationBytes = utf8.encode(location);
       bytes.add(0x03);
-      bytes.add(location.length);
-      bytes.addAll(utf8.encode(location));
+      bytes.add(locationBytes.length);
+      bytes.addAll(locationBytes);
     }
 
     final length = bytes.length + 2;
