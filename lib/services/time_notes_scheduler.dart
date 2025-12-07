@@ -18,6 +18,7 @@ class TimeNotesScheduler extends GetxService {
   Timer? _tick;
   Timer? _worldTimeTick;
   Timer? _worldTimeNoteTick;
+  DateTime? _activeHoldUntil;
 
   /// Tracks the last send token per note to avoid spamming during an active window.
   /// For weekly notes: stores YYYY-MM-DD to send once per day.
@@ -25,6 +26,7 @@ class TimeNotesScheduler extends GetxService {
   final Map<String, String> _lastSent = {};
   String? _lastActiveNoteId;
   String? _lastGeneralNoteId;
+  static const _placeholderId = '_placeholder_note';
 
   @override
   void onInit() {
@@ -61,7 +63,7 @@ class TimeNotesScheduler extends GetxService {
           ? _controller.generalNotes.first
           : null;
 
-      if (general != null) {
+      if (general != null && (_activeHoldUntil == null || now.isAfter(_activeHoldUntil!))) {
         // Hard-sync layout, then send note, then re-sync layout to avoid split dashboards.
         await Proto.setDashboardMode(modeId: 0);
         await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
@@ -103,21 +105,31 @@ class TimeNotesScheduler extends GetxService {
         return;
       }
 
-      // No general note to show: clear any lingering note and baseline dashboard.
-      if (_lastActiveNoteId != null || _lastGeneralNoteId != null) {
-        await DashboardNoteService.instance.clearNote(noteNumber: 1);
+      // Placeholder only after hold window expires to avoid flicker after an active note ends.
+      if (_activeHoldUntil != null && now.isBefore(_activeHoldUntil!)) {
+        return;
       }
-      _lastActiveNoteId = null;
-      _lastGeneralNoteId = null;
-      _lastSent.removeWhere((_, __) => true);
-      await Proto.setDashboardMode(modeId: 0); // Full layout to keep both eyes consistent
-      await Proto.setTimeAndWeather(
-        weatherIconId: 0x00,
-        temperature: 0, // neutral temp; caller can update via WeatherController elsewhere
+
+      // No notes at all: show a placeholder prompt.
+      await Proto.setDashboardMode(modeId: 0);
+      await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+      await Future.delayed(const Duration(milliseconds: 300));
+      await DashboardNoteService.instance.sendDashboardNote(
+        title: 'No notes yet',
+        text: 'Add notes in the app to display them here.',
+        noteNumber: 1,
       );
+      await Future.delayed(const Duration(milliseconds: 300));
+      await Proto.setDashboardMode(modeId: 0);
+      await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+      _lastActiveNoteId = null;
+      _lastGeneralNoteId = _placeholderId;
+      _lastSent.removeWhere((_, __) => true);
       return;
     }
 
+    // Active note present: hold off general/placeholder for a few seconds after it ends.
+    _activeHoldUntil = now.add(const Duration(seconds: 10));
     _lastGeneralNoteId = null;
 
     // Choose the first active note; could expand to priority ordering if needed.

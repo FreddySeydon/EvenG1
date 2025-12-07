@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'calendar_controller.dart';
 import '../models/device_calendar_event.dart';
 import '../models/time_note.dart';
+import '../services/device_calendar_service.dart';
 import '../services/time_notes_service.dart';
 
 class TimeNotesController extends GetxController {
@@ -13,8 +14,11 @@ class TimeNotesController extends GetxController {
   final generalNotes = <TimeNote>[].obs;
 
   Timer? _ticker;
+  Timer? _calendarResyncTicker;
   Worker? _calendarWorker;
   CalendarController? _calendarController;
+  bool _resyncInFlight = false;
+  DateTime? _lastResync;
 
   @override
   void onInit() {
@@ -32,6 +36,7 @@ class TimeNotesController extends GetxController {
   @override
   void onClose() {
     _ticker?.cancel();
+    _calendarResyncTicker?.cancel();
     _calendarWorker?.dispose();
     super.onClose();
   }
@@ -43,6 +48,7 @@ class TimeNotesController extends GetxController {
       await syncCalendarAttachments(_calendarController!.events);
     }
     _startTicker();
+    await _resyncLinkedNotesFromCalendar();
     _recomputeActive();
   }
 
@@ -50,6 +56,11 @@ class TimeNotesController extends GetxController {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(minutes: 1), (_) {
       _recomputeActive();
+    });
+
+    _calendarResyncTicker?.cancel();
+    _calendarResyncTicker = Timer.periodic(const Duration(minutes: 1), (_) {
+      _resyncLinkedNotesFromCalendar();
     });
   }
 
@@ -91,22 +102,35 @@ class TimeNotesController extends GetxController {
       }
 
       final key = '${note.calendarId ?? ''}::${note.calendarEventId ?? ''}';
-      final event = lookup[key] ?? _findByEventId(lookup, note.calendarEventId);
-      if (event == null) {
-        updated.add(note);
-        continue;
-      }
+      DeviceCalendarEvent? event = lookup[key] ?? _findByEventId(lookup, note.calendarEventId);
+      event ??= note.calendarEventId != null
+          ? await DeviceCalendarService.instance.loadEventById(
+              calendarId: note.calendarId,
+              eventId: note.calendarEventId!,
+              anchor: note.calendarStart ?? note.startDateTime,
+            )
+          : null;
+      final shouldClear = event == null;
 
-      final refreshed = note.copyWith(
-        calendarStart: event.start,
-        calendarEnd: event.end,
-        calendarTitle: event.title,
-        calendarLocation: event.location,
-        startDateTime: event.start,
-        endDateTime: event.end,
-        startMinutes: event.start.hour * 60 + event.start.minute,
-        endMinutes: event.end.hour * 60 + event.end.minute,
-      );
+      final refreshed = shouldClear
+          ? note.copyWith(
+              calendarStart: null,
+              calendarEnd: null,
+              startDateTime: null,
+              endDateTime: null,
+              startMinutes: 0,
+              endMinutes: 0,
+            )
+          : note.copyWith(
+              calendarStart: event.start,
+              calendarEnd: event.end,
+              calendarTitle: event.title,
+              calendarLocation: event.location,
+              startDateTime: event.start,
+              endDateTime: event.end,
+              startMinutes: event.start.hour * 60 + event.start.minute,
+              endMinutes: event.end.hour * 60 + event.end.minute,
+            );
       updated.add(refreshed);
       if (!_calendarFieldsEqual(note, refreshed)) {
         changed = true;
@@ -118,6 +142,67 @@ class TimeNotesController extends GetxController {
       await TimeNotesService.instance.saveNotes(notes);
     }
     _recomputeActive();
+  }
+
+  /// Periodically refresh calendar-linked notes by eventId to pick up time changes
+  /// even when the event list/window hasn't been refreshed.
+  Future<void> _resyncLinkedNotesFromCalendar() async {
+    if (_resyncInFlight) return;
+    final now = DateTime.now();
+    if (_lastResync != null && now.difference(_lastResync!) < const Duration(minutes: 1)) {
+      return;
+    }
+    _resyncInFlight = true;
+    _lastResync = now;
+    try {
+      if (notes.isEmpty) return;
+      bool changed = false;
+      final updated = <TimeNote>[];
+      for (final note in notes) {
+        if (!note.isCalendarLinked) {
+          updated.add(note);
+          continue;
+        }
+        final event = note.calendarEventId != null
+            ? await DeviceCalendarService.instance.loadEventById(
+                calendarId: note.calendarId,
+                eventId: note.calendarEventId!,
+                anchor: note.calendarStart ?? note.startDateTime,
+              )
+            : null;
+        final refreshed = event == null
+            ? note.copyWith(
+                calendarStart: null,
+                calendarEnd: null,
+                startDateTime: null,
+                endDateTime: null,
+                startMinutes: 0,
+                endMinutes: 0,
+              )
+            : note.copyWith(
+                calendarStart: event.start,
+                calendarEnd: event.end,
+                calendarTitle: event.title,
+                calendarLocation: event.location,
+                startDateTime: event.start,
+                endDateTime: event.end,
+                startMinutes: event.start.hour * 60 + event.start.minute,
+                endMinutes: event.end.hour * 60 + event.end.minute,
+              );
+        updated.add(refreshed);
+        if (!_calendarFieldsEqual(note, refreshed)) {
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        notes.assignAll(updated);
+        await TimeNotesService.instance.saveNotes(notes);
+      }
+      _recomputeActive();
+    } finally {
+      _resyncInFlight = false;
+    }
   }
 
   bool _calendarFieldsEqual(TimeNote a, TimeNote b) {

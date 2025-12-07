@@ -38,6 +38,44 @@ class DeviceCalendarService {
     }
   }
 
+  Future<DeviceCalendarEvent?> loadEventById({
+    String? calendarId,
+    required String eventId,
+    DateTime? anchor,
+  }) async {
+    if (eventId.isEmpty) return null;
+    try {
+      final ids = calendarId != null && calendarId.isNotEmpty
+          ? <String>[calendarId]
+          : (await loadCalendars()).map((c) => c.id).whereType<String>().toList();
+      final center = anchor ?? DateTime.now();
+      final start = center.subtract(const Duration(days: 365));
+      final end = center.add(const Duration(days: 365));
+      for (final id in ids) {
+        final response = await _plugin.retrieveEvents(
+          id,
+          RetrieveEventsParams(
+            startDate: start,
+            endDate: end,
+          ),
+        );
+        final data = response.data ?? <Event>[];
+        for (final event in data) {
+          if (event.eventId != eventId) continue;
+          if (event.start == null || event.end == null) continue;
+          try {
+            return DeviceCalendarEvent.fromPlugin(event, id);
+          } catch (_) {
+            // Skip malformed events.
+          }
+        }
+      }
+    } catch (e) {
+      print('DeviceCalendarService.loadEventById error: $e');
+    }
+    return null;
+  }
+
   Future<List<DeviceCalendarEvent>> loadEvents({
     required DateTime start,
     required DateTime end,
