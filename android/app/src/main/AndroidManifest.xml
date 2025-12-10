@@ -30,6 +30,8 @@
     
     <!-- Phone permissions for call state detection (reduced to avoid extra prompts) -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Contacts permission for caller name lookup on incoming calls -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     
     <!-- Notification permission for Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" 

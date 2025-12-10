@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/services/proto.dart';
 import 'package:demo_ai_even/services/evenai.dart';
+import 'package:demo_ai_even/services/pin_text_service.dart';
+import 'package:demo_ai_even/services/text_service.dart';
 import 'package:demo_ai_even/views/features/notification/notify_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -323,12 +325,9 @@ class NotificationService {
   Future<void> _sendNotificationToGlasses(NotifyModel notify, [Map<String, dynamic>? rawData]) async {
     final bool isCall = rawData?['is_call'] == true;
 
-    // Format notification for display
     final displayText = _formatNotificationForDisplay(notify, rawData);
-    
-    // Always update UI to show notification (same place as AI responses)
     EvenAI.updateDynamicText(displayText);
-    
+
     if (!BleManager.get().isConnected) {
       print('NotificationService: Cannot send notification to glasses - glasses not connected');
       print('NotificationService: Notification displayed in UI: $displayText');
@@ -336,15 +335,38 @@ class NotificationService {
     }
 
     try {
-      // Double-check connection state
       if (!BleManager.get().isConnected) {
         print('NotificationService: Connection check failed - isConnected = false');
         print('NotificationService: Connection status: ${BleManager.get().getConnectionStatus()}');
-        EvenAI.updateDynamicText('$displayText\n\n⚠️ Cannot send - glasses not connected');
+        EvenAI.updateDynamicText('$displayText\n\nCannot send - glasses not connected');
         return;
       }
 
-      // Increment notification ID (wrap around at 255)
+      if (isCall) {
+        // Prefer detailed caller info lines; fall back to any non-empty field.
+        final callerLines = _extractCallerInfoLines(notify);
+        final callerLine = callerLines.isNotEmpty ? callerLines.join('\n') : _firstNonEmpty([
+          notify.subTitle,
+          notify.displayName,
+          notify.message,
+        ]);
+        final body = callerLine.isNotEmpty ? callerLine : 'Incoming call';
+        print('NotificationService: Sending call via pin text: "$body"');
+        final sent = await PinTextService.instance.sendPinText(body);
+        if (sent) {
+          EvenAI.updateDynamicText('$displayText\n\nCall sent to glasses');
+          // Clear call text shortly after by exiting text mode.
+          Future.delayed(const Duration(seconds: 6), () async {
+            await TextService.get.stopTextSendingByOS();
+            // Send a single-space pin text to clear the overlay without flashing AI state.
+            await PinTextService.instance.sendPinText(' ');
+          });
+        } else {
+          EvenAI.updateDynamicText('$displayText\n\nFailed to send call to glasses (check connection)');
+        }
+        return;
+      }
+
       _notificationId = (_notificationId + 1) % 256;
 
       final notifyMap = Map<String, dynamic>.from(notify.toMap());
@@ -362,98 +384,36 @@ class NotificationService {
           notifyMap['caller_name_lookup'] = rawData['caller_name_lookup'];
         }
       }
-      if (isCall) {
-        // For call notifications, the enriched notify should already have the correct structure
-        // The notify.toMap() above already populated all fields correctly from the enriched notify
-        // Just ensure title is "Incoming Call" and add call-specific flags
-        notifyMap['title'] = 'Incoming Call';
-        
-        // Ensure message and display_name are set (they should be from enrichment, but double-check)
-        if (notifyMap['message'] == null || (notifyMap['message'] as String).isEmpty) {
-          notifyMap['message'] = notifyMap['display_name'] ?? 'Unknown Caller';
-        }
-        if (notifyMap['display_name'] == null || (notifyMap['display_name'] as String).isEmpty) {
-          notifyMap['display_name'] = notifyMap['message'] ?? 'Incoming Call';
-        }
-        
-        print('NotificationService: Call notification payload - title: "${notifyMap['title']}", message: "${notifyMap['message']}", display_name: "${notifyMap['display_name']}", subtitle: "${notifyMap['subtitle']}"');
-      }
+
       print('NotificationService: Sending notification to glasses');
       print('NotificationService: Notification ID: $_notificationId');
       print('NotificationService: Notification data: $notifyMap');
       print('NotificationService: Display text: $displayText');
       print('NotificationService: Connection status: ${BleManager.get().getConnectionStatus()}');
       
-      // Send to glasses (now returns bool)
-      bool success = await Proto.sendNotify(notifyMap, _notificationId);
+      final success = await Proto.sendNotify(notifyMap, _notificationId);
       
       if (success) {
-        print('NotificationService: ✅ Notification sent successfully to glasses');
-        // Update UI to confirm it was sent
-        if (isCall) {
-          EvenAI.updateDynamicText('$displayText\n\n✅ Call sent to glasses');
-        } else {
-          EvenAI.updateDynamicText('$displayText\n\n✅ Sent to glasses');
-        }
+        print('NotificationService: Notification sent successfully to glasses');
+        EvenAI.updateDynamicText('$displayText\n\nSent to glasses');
       } else {
-        print('NotificationService: ❌ Failed to send notification after retries');
-        final failureSuffix = isCall
-            ? '\n\n❌ Failed to send call to glasses (check connection)'
-            : '\n\n❌ Failed to send to glasses (check connection)';
-        EvenAI.updateDynamicText('$displayText$failureSuffix');
+        print('NotificationService: Failed to send notification after retries');
+        EvenAI.updateDynamicText('$displayText\n\nFailed to send to glasses (check connection)');
       }
     } catch (e, stackTrace) {
-      print('NotificationService: ❌ Error sending notification to glasses: $e');
+      print('NotificationService: Error sending notification to glasses: $e');
       print('Stack trace: $stackTrace');
-      // Still update UI with error message
-      final errorSuffix = isCall
-          ? '\n\n❌ Call send error: $e'
-          : '\n\n❌ Error: $e';
-      EvenAI.updateDynamicText('$displayText$errorSuffix');
+      EvenAI.updateDynamicText('$displayText\n\nError: $e');
     }
   }
 
   /// Check if notification is a call notification
   bool _isCallNotification(NotifyModel notify, Map<String, dynamic>? rawData) {
-    // 1) Native category hint
-    final category = rawData?['category'] as String?;
-    if (category != null && category.toLowerCase() == 'call') {
-      return true;
-    }
-
-    // 2) Package name hint
-    final appId = notify.appIdentifier.toLowerCase();
-    const phonePackagePatterns = [
-      'phone',
-      'dialer',
-      'telecom',
-      'incallui',
-      'call',
-    ];
-    if (phonePackagePatterns.any((pattern) => appId.contains(pattern))) {
-      return true;
-    }
-
-    // 3) Content keywords
-    bool hasCallKeywords(String value) {
-      final lower = value.toLowerCase();
-      const keywords = [
-        'incoming call',
-        'call',
-        'calling',
-        'phone call',
-        'ringing',
-      ];
-      return keywords.any(lower.contains);
-    }
-
-    if (hasCallKeywords(notify.title) ||
-        hasCallKeywords(notify.message) ||
-        hasCallKeywords(notify.subTitle) ||
-        hasCallKeywords(notify.displayName)) {
-      return true;
-    }
-
+    if (rawData?['call_notification'] == true) return true;
+    final title = (rawData?['title'] as String? ?? notify.title).toLowerCase();
+    if (title.trim() == 'incoming call') return true;
+    final category = (rawData?['category'] as String?)?.toLowerCase();
+    if (category == 'call') return true;
     return false;
 
   }
