@@ -286,18 +286,17 @@ class CalendarController extends GetxController {
 
   _PanePayload _buildPanePayload(DeviceCalendarEvent event) {
     final now = DateTime.now();
-    final isToday = event.start.year == now.year &&
-        event.start.month == now.month &&
-        event.start.day == now.day;
-    final isTomorrow = !isToday &&
-        event.start.isAfter(now) &&
-        event.start.isBefore(now.add(const Duration(days: 2))) &&
-        event.start.day != now.day;
+    final eventDate = DateTime(event.start.year, event.start.month, event.start.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final daysDiff = eventDate.difference(today).inDays;
+    final isToday = daysDiff == 0;
+    final isTomorrow = daysDiff == 1;
+    final weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final datePart = isToday
         ? 'Today'
         : isTomorrow
             ? 'Tomorrow'
-            : '${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${event.start.year}';
+            : '${weekdayNames[eventDate.weekday - 1]} ${event.start.day.toString().padLeft(2, '0')}.${event.start.month.toString().padLeft(2, '0')}.${(event.start.year % 100).toString().padLeft(2, '0')}';
     final timePart =
         '${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
 

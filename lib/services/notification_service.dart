@@ -410,8 +410,8 @@ class NotificationService {
   /// Check if notification is a call notification
   bool _isCallNotification(NotifyModel notify, Map<String, dynamic>? rawData) {
     if (rawData?['call_notification'] == true) return true;
-    final title = (rawData?['title'] as String? ?? notify.title).toLowerCase();
-    if (title.trim() == 'incoming call') return true;
+    final title = (rawData?['title'] as String? ?? notify.title).toLowerCase().trim();
+    if (title == 'incoming call') return true;
     final category = (rawData?['category'] as String?)?.toLowerCase();
     if (category == 'call') return true;
     return false;

@@ -113,7 +113,9 @@ class CallStateListener: NSObject {
             "subtitle": "",
             "message": "Incoming call",
             "time_s": Int(Date().timeIntervalSince1970),
-            "display_name": "Phone"
+            "display_name": "Phone",
+            "category": "call",
+            "call_notification": true
         ]
         
         print("CallStateListener: Sending call notification to Flutter")
@@ -154,4 +156,3 @@ extension CallStateListener: CXCallObserverDelegate {
         }
     }
 }
-

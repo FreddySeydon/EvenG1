@@ -226,6 +226,8 @@ class CallStateListener(private val context: Context) {
             put("message", phoneNumber)
             put("time_s", (System.currentTimeMillis() / 1000).toInt())
             put("display_name", "Phone")
+            put("category", "call")
+            put("call_notification", true)
         }
         
         Log.d(TAG, "Sending call notification to Flutter: $callNotification")
@@ -299,4 +301,3 @@ class CallStateListener(private val context: Context) {
         callerNameCache.clear()
     }
 }
-
