@@ -10,6 +10,7 @@ class DeviceCalendarEvent {
   final DateTime end;
   final String location;
   final bool allDay;
+  final bool isRecurring;
 
   const DeviceCalendarEvent({
     required this.id,
@@ -19,6 +20,7 @@ class DeviceCalendarEvent {
     required this.end,
     required this.location,
     required this.allDay,
+    this.isRecurring = false,
   });
 
   factory DeviceCalendarEvent.fromPlugin(Event event, String calendarId) {
@@ -41,6 +43,7 @@ class DeviceCalendarEvent {
       return DateTime(local.year, local.month, local.day, local.hour, local.minute);
     }
     final allDayFlag = event.allDay ?? false;
+    final recurringFlag = event.recurrenceRule != null;
     return DeviceCalendarEvent(
       id: eventId,
       calendarId: calendarId,
@@ -49,6 +52,7 @@ class DeviceCalendarEvent {
       end: normalize(endDate, allDayFlag),
       location: event.location ?? '',
       allDay: allDayFlag,
+      isRecurring: recurringFlag,
     );
   }
 

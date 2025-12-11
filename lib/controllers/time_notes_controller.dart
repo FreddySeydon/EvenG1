@@ -12,6 +12,7 @@ class TimeNotesController extends GetxController {
   final notes = <TimeNote>[].obs;
   final activeNotes = <TimeNote>[].obs;
   final generalNotes = <TimeNote>[].obs;
+  final archivedNotes = <TimeNote>[].obs;
 
   Timer? _ticker;
   Timer? _calendarResyncTicker;
@@ -49,7 +50,7 @@ class TimeNotesController extends GetxController {
     }
     _startTicker();
     await _resyncLinkedNotesFromCalendar();
-    _recomputeActive();
+    await _recomputeActive();
   }
 
   void _startTicker() {
@@ -72,13 +73,19 @@ class TimeNotesController extends GetxController {
       notes.add(note);
     }
     await TimeNotesService.instance.saveNotes(notes);
-    _recomputeActive();
+    await _recomputeActive();
   }
 
   Future<void> deleteNote(String id) async {
     notes.removeWhere((n) => n.id == id);
     await TimeNotesService.instance.saveNotes(notes);
-    _recomputeActive();
+    await _recomputeActive();
+  }
+
+  Future<void> clearArchived() async {
+    notes.removeWhere((n) => n.archivedAt != null);
+    await TimeNotesService.instance.saveNotes(notes);
+    await _recomputeActive();
   }
 
   Future<void> syncCalendarAttachments(List<DeviceCalendarEvent> events) async {
@@ -107,10 +114,10 @@ class TimeNotesController extends GetxController {
           ? await DeviceCalendarService.instance.loadEventById(
               calendarId: note.calendarId,
               eventId: note.calendarEventId!,
-              anchor: note.calendarStart ?? note.startDateTime,
+              anchor: note.attachToAllOccurrences ? DateTime.now() : note.calendarStart ?? note.startDateTime,
             )
           : null;
-      final shouldClear = event == null;
+      final shouldClear = event == null && !(note.attachToAllOccurrences && note.isRecurringEvent);
 
       final refreshed = shouldClear
           ? note.copyWith(
@@ -120,17 +127,25 @@ class TimeNotesController extends GetxController {
               endDateTime: null,
               startMinutes: 0,
               endMinutes: 0,
+              isRecurringEvent: note.isRecurringEvent,
             )
-          : note.copyWith(
-              calendarStart: event.start,
-              calendarEnd: event.end,
-              calendarTitle: event.title,
-              calendarLocation: event.location,
-              startDateTime: event.start,
-              endDateTime: event.end,
-              startMinutes: event.start.hour * 60 + event.start.minute,
-              endMinutes: event.end.hour * 60 + event.end.minute,
-            );
+          : () {
+              final startRef = event?.start ?? note.calendarStart ?? note.startDateTime;
+              final endRef = event?.end ?? note.calendarEnd ?? note.endDateTime;
+              final startMinutes = startRef != null ? startRef.hour * 60 + startRef.minute : 0;
+              final endMinutes = endRef != null ? endRef.hour * 60 + endRef.minute : 0;
+              return note.copyWith(
+                calendarStart: event?.start ?? note.calendarStart,
+                calendarEnd: event?.end ?? note.calendarEnd,
+                calendarTitle: event?.title ?? note.calendarTitle,
+                calendarLocation: event?.location ?? note.calendarLocation,
+                startDateTime: event?.start ?? note.startDateTime,
+                endDateTime: event?.end ?? note.endDateTime,
+                startMinutes: startMinutes,
+                endMinutes: endMinutes,
+                isRecurringEvent: event?.isRecurring ?? note.isRecurringEvent,
+              );
+            }();
       updated.add(refreshed);
       if (!_calendarFieldsEqual(note, refreshed)) {
         changed = true;
@@ -141,7 +156,7 @@ class TimeNotesController extends GetxController {
       notes.assignAll(updated);
       await TimeNotesService.instance.saveNotes(notes);
     }
-    _recomputeActive();
+    await _recomputeActive();
   }
 
   /// Periodically refresh calendar-linked notes by eventId to pick up time changes
@@ -167,7 +182,7 @@ class TimeNotesController extends GetxController {
             ? await DeviceCalendarService.instance.loadEventById(
                 calendarId: note.calendarId,
                 eventId: note.calendarEventId!,
-                anchor: note.calendarStart ?? note.startDateTime,
+                anchor: note.attachToAllOccurrences ? DateTime.now() : note.calendarStart ?? note.startDateTime,
               )
             : null;
         final refreshed = event == null
@@ -178,17 +193,25 @@ class TimeNotesController extends GetxController {
                 endDateTime: null,
                 startMinutes: 0,
                 endMinutes: 0,
+                isRecurringEvent: note.isRecurringEvent,
               )
-            : note.copyWith(
-                calendarStart: event.start,
-                calendarEnd: event.end,
-                calendarTitle: event.title,
-                calendarLocation: event.location,
-                startDateTime: event.start,
-                endDateTime: event.end,
-                startMinutes: event.start.hour * 60 + event.start.minute,
-                endMinutes: event.end.hour * 60 + event.end.minute,
-              );
+            : () {
+                final startRef = event.start;
+                final endRef = event.end;
+                final startMinutes = startRef.hour * 60 + startRef.minute;
+                final endMinutes = endRef.hour * 60 + endRef.minute;
+                return note.copyWith(
+                  calendarStart: event.start,
+                  calendarEnd: event.end,
+                  calendarTitle: event.title,
+                  calendarLocation: event.location,
+                  startDateTime: startRef,
+                  endDateTime: endRef,
+                  startMinutes: startMinutes,
+                  endMinutes: endMinutes,
+                  isRecurringEvent: event.isRecurring,
+                );
+              }();
         updated.add(refreshed);
         if (!_calendarFieldsEqual(note, refreshed)) {
           changed = true;
@@ -199,7 +222,7 @@ class TimeNotesController extends GetxController {
         notes.assignAll(updated);
         await TimeNotesService.instance.saveNotes(notes);
       }
-      _recomputeActive();
+      await _recomputeActive();
     } finally {
       _resyncInFlight = false;
     }
@@ -213,7 +236,8 @@ class TimeNotesController extends GetxController {
         a.startDateTime == b.startDateTime &&
         a.endDateTime == b.endDateTime &&
         a.startMinutes == b.startMinutes &&
-        a.endMinutes == b.endMinutes;
+        a.endMinutes == b.endMinutes &&
+        a.isRecurringEvent == b.isRecurringEvent;
   }
 
   DeviceCalendarEvent? _findByEventId(
@@ -227,10 +251,58 @@ class TimeNotesController extends GetxController {
     return null;
   }
 
-  void _recomputeActive() {
+  Future<void> _recomputeActive() async {
     final now = DateTime.now();
+    await _cleanupExpiredNotes(now);
     final active = notes.where((n) => n.isActiveAt(now)).toList();
     activeNotes.assignAll(active);
-    generalNotes.assignAll(notes.where((n) => n.type == TimeNoteType.general));
+    generalNotes.assignAll(notes.where((n) => n.type == TimeNoteType.general && n.archivedAt == null));
+    archivedNotes.assignAll(notes.where((n) => n.archivedAt != null));
+  }
+
+  Future<void> _cleanupExpiredNotes(DateTime now) async {
+    bool changed = false;
+    final remaining = <TimeNote>[];
+    for (final note in notes) {
+      if (note.archivedAt != null) {
+        remaining.add(note);
+        continue;
+      }
+      if (_isExpired(note, now)) {
+        if (note.endAction == TimeNoteEndAction.delete) {
+          changed = true;
+          continue;
+        }
+        remaining.add(note.copyWith(archivedAt: now));
+        changed = true;
+        continue;
+      }
+      remaining.add(note);
+    }
+    if (changed) {
+      notes.assignAll(remaining);
+      await TimeNotesService.instance.saveNotes(notes);
+    }
+  }
+
+  bool _isExpired(TimeNote note, DateTime now) {
+    if (note.archivedAt != null) return false;
+    if (note.type == TimeNoteType.general) return false;
+    if (note.recurrence == TimeNoteRecurrence.weekly) return false;
+    if (note.attachToAllOccurrences && note.isRecurringEvent) return false;
+
+    if (note.isCalendarLinked) {
+      if (note.calendarEnd == null) return false;
+      final windowEnd = note.calendarEnd!.add(Duration(minutes: note.postOffsetMinutes));
+      return now.isAfter(windowEnd);
+    }
+
+    if (note.recurrence == TimeNoteRecurrence.once) {
+      if (note.endDateTime == null) return false;
+      final windowEnd = note.endDateTime!.add(Duration(minutes: note.postOffsetMinutes));
+      return now.isAfter(windowEnd);
+    }
+
+    return false;
   }
 }

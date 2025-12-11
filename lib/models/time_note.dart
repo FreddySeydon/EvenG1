@@ -1,5 +1,6 @@
 enum TimeNoteRecurrence { once, weekly }
 enum TimeNoteType { timed, general }
+enum TimeNoteEndAction { delete, archive }
 
 class TimeNote {
   final String id;
@@ -7,6 +8,9 @@ class TimeNote {
   final String content;
   final TimeNoteType type;
   final TimeNoteRecurrence recurrence;
+  final TimeNoteEndAction endAction;
+  final int preOffsetMinutes; // Minutes before start to show
+  final int postOffsetMinutes; // Minutes after end to keep showing
   final DateTime? startDateTime; // Used for one-time notes
   final DateTime? endDateTime; // Used for one-time notes
   final List<int> weekdays; // 1 = Monday, 7 = Sunday for weekly recurrence
@@ -18,6 +22,9 @@ class TimeNote {
   final DateTime? calendarEnd; // Cached event end time
   final String? calendarTitle;
   final String? calendarLocation;
+  final bool attachToAllOccurrences; // For recurring calendar events
+  final bool isRecurringEvent; // Flag from the calendar source
+  final DateTime? archivedAt; // When set, treat as archived/past
 
   const TimeNote({
     required this.id,
@@ -25,6 +32,9 @@ class TimeNote {
     required this.content,
     this.type = TimeNoteType.timed,
     required this.recurrence,
+    this.endAction = TimeNoteEndAction.delete,
+    this.preOffsetMinutes = 10,
+    this.postOffsetMinutes = 10,
     required this.startMinutes,
     required this.endMinutes,
     this.startDateTime,
@@ -36,6 +46,9 @@ class TimeNote {
     this.calendarEnd,
     this.calendarTitle,
     this.calendarLocation,
+    this.attachToAllOccurrences = false,
+    this.isRecurringEvent = false,
+    this.archivedAt,
   });
 
   bool get isCalendarLinked =>
@@ -45,8 +58,19 @@ class TimeNote {
       calendarEnd != null;
 
   bool isActiveAt(DateTime now) {
+    final pre = preOffsetMinutes;
+    final post = postOffsetMinutes;
+    if (archivedAt != null) {
+      return false;
+    }
+
     if (isCalendarLinked) {
-      return !now.isBefore(calendarStart!) && now.isBefore(calendarEnd!);
+      final start = calendarStart;
+      final end = calendarEnd;
+      if (start == null || end == null) return false;
+      final windowStart = start.subtract(Duration(minutes: pre));
+      final windowEnd = end.add(Duration(minutes: post));
+      return !now.isBefore(windowStart) && now.isBefore(windowEnd);
     }
 
     if (type == TimeNoteType.general) {
@@ -55,7 +79,9 @@ class TimeNote {
 
     if (recurrence == TimeNoteRecurrence.once) {
       if (startDateTime == null || endDateTime == null) return false;
-      return !now.isBefore(startDateTime!) && now.isBefore(endDateTime!);
+      final windowStart = startDateTime!.subtract(Duration(minutes: pre));
+      final windowEnd = endDateTime!.add(Duration(minutes: post));
+      return !now.isBefore(windowStart) && now.isBefore(windowEnd);
     }
 
     // Weekly recurrence: match weekday and time window
@@ -64,7 +90,9 @@ class TimeNote {
     final minutesNow = now.hour * 60 + now.minute;
     // Assume same-day window; if end <= start, treat as inactive to avoid cross-midnight complexity
     if (endMinutes <= startMinutes) return false;
-    return minutesNow >= startMinutes && minutesNow < endMinutes;
+    final windowStart = ((startMinutes - pre).clamp(0, 24 * 60)).toInt();
+    final windowEnd = ((endMinutes + post).clamp(0, 24 * 60)).toInt();
+    return minutesNow >= windowStart && minutesNow < windowEnd;
   }
 
   TimeNote copyWith({
@@ -73,6 +101,9 @@ class TimeNote {
     String? content,
     TimeNoteType? type,
     TimeNoteRecurrence? recurrence,
+    TimeNoteEndAction? endAction,
+    int? preOffsetMinutes,
+    int? postOffsetMinutes,
     DateTime? startDateTime,
     DateTime? endDateTime,
     List<int>? weekdays,
@@ -84,6 +115,9 @@ class TimeNote {
     DateTime? calendarEnd,
     String? calendarTitle,
     String? calendarLocation,
+    bool? attachToAllOccurrences,
+    bool? isRecurringEvent,
+    DateTime? archivedAt,
   }) {
     return TimeNote(
       id: id ?? this.id,
@@ -91,6 +125,9 @@ class TimeNote {
       content: content ?? this.content,
       type: type ?? this.type,
       recurrence: recurrence ?? this.recurrence,
+      endAction: endAction ?? this.endAction,
+      preOffsetMinutes: preOffsetMinutes ?? this.preOffsetMinutes,
+      postOffsetMinutes: postOffsetMinutes ?? this.postOffsetMinutes,
       startMinutes: startMinutes ?? this.startMinutes,
       endMinutes: endMinutes ?? this.endMinutes,
       startDateTime: startDateTime ?? this.startDateTime,
@@ -102,6 +139,9 @@ class TimeNote {
       calendarEnd: calendarEnd ?? this.calendarEnd,
       calendarTitle: calendarTitle ?? this.calendarTitle,
       calendarLocation: calendarLocation ?? this.calendarLocation,
+      attachToAllOccurrences: attachToAllOccurrences ?? this.attachToAllOccurrences,
+      isRecurringEvent: isRecurringEvent ?? this.isRecurringEvent,
+      archivedAt: archivedAt ?? this.archivedAt,
     );
   }
 
@@ -112,6 +152,9 @@ class TimeNote {
       'content': content,
       'type': type.name,
       'recurrence': recurrence.name,
+      'endAction': endAction.name,
+      'preOffsetMinutes': preOffsetMinutes,
+      'postOffsetMinutes': postOffsetMinutes,
       'startDateTime': startDateTime?.toIso8601String(),
       'endDateTime': endDateTime?.toIso8601String(),
       'weekdays': weekdays,
@@ -123,6 +166,9 @@ class TimeNote {
       'calendarEnd': calendarEnd?.toIso8601String(),
       'calendarTitle': calendarTitle,
       'calendarLocation': calendarLocation,
+      'attachToAllOccurrences': attachToAllOccurrences,
+      'isRecurringEvent': isRecurringEvent,
+      'archivedAt': archivedAt?.toIso8601String(),
     };
   }
 
@@ -131,6 +177,9 @@ class TimeNote {
     final typeName = json['type'] as String? ?? 'timed';
     final startDateString = json['startDateTime'] as String?;
     final endDateString = json['endDateTime'] as String?;
+    final endActionName = json['endAction'] as String? ?? 'delete';
+    final preOffset = (json['preOffsetMinutes'] as num?)?.toInt() ?? 10;
+    final postOffset = (json['postOffsetMinutes'] as num?)?.toInt() ?? 10;
 
     return TimeNote(
       id: json['id'] as String,
@@ -140,6 +189,11 @@ class TimeNote {
       recurrence: recurrenceName == 'weekly'
           ? TimeNoteRecurrence.weekly
           : TimeNoteRecurrence.once,
+      endAction: endActionName == 'archive'
+          ? TimeNoteEndAction.archive
+          : TimeNoteEndAction.delete,
+      preOffsetMinutes: preOffset,
+      postOffsetMinutes: postOffset,
       startMinutes: (json['startMinutes'] as num?)?.toInt() ?? 0,
       endMinutes: (json['endMinutes'] as num?)?.toInt() ?? 0,
       startDateTime: startDateString != null ? DateTime.parse(startDateString) : null,
@@ -155,6 +209,11 @@ class TimeNote {
           : null,
       calendarTitle: json['calendarTitle'] as String?,
       calendarLocation: json['calendarLocation'] as String?,
+      attachToAllOccurrences: json['attachToAllOccurrences'] as bool? ?? false,
+      isRecurringEvent: json['isRecurringEvent'] as bool? ?? false,
+      archivedAt: (json['archivedAt'] as String?) != null
+          ? DateTime.tryParse(json['archivedAt'] as String)
+          : null,
     );
   }
 }

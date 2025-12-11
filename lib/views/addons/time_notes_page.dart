@@ -22,104 +22,187 @@ class TimeNotesPage extends StatelessWidget {
     final controller = Get.find<TimeNotesController>();
     final calendarController = Get.find<CalendarController>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Time-aware Notes'),
-      ),
-      body: Obx(() {
-        final notes = controller.notes;
-        final activeIds = controller.activeNotes.map((n) => n.id).toSet();
-
-        return ListView(
-          padding: const EdgeInsets.all(16),
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Time-aware Notes'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Calendar'),
+              Tab(text: 'Scheduled'),
+              Tab(text: 'Archived'),
+            ],
+          ),
+        ),
+        body: TabBarView(
           children: [
-            _CalendarSection(
-              calendarController: calendarController,
-              notesController: controller,
-            ),
-            const SizedBox(height: 12),
-            if (notes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 32),
-                child: Center(
-                  child: Text('No time-aware notes yet. Tap + to add one.'),
+            // Calendar tab
+            ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _CalendarSection(
+                  calendarController: calendarController,
+                  notesController: controller,
                 ),
-              )
-            else
-              ...List.generate(notes.length, (index) {
-                final note = notes[index];
-                final isActive = activeIds.contains(note.id);
-                final linkedEvent = note.isCalendarLinked
-                    ? calendarController.findEvent(note.calendarEventId, note.calendarId)
-                    : null;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  color: isActive ? Colors.green.withOpacity(0.08) : null,
-                  child: ListTile(
-                    title: Text(note.title.isEmpty ? 'Untitled note' : note.title),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(
-                          _scheduleLabel(note),
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          note.content,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (isActive)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Active now',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.send),
-                          tooltip: 'Send to G1 dashboard',
-                          onPressed: () => _sendToDashboard(context, note),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete),
-                          onPressed: () async {
-                            await controller.deleteNote(note.id);
-                            if (controller.activeNotes.any((n) => n.id == note.id)) {
-                              await DashboardNoteService.instance.clearNote(
-                                noteNumber: 1,
-                              );
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                    onTap: () => _openEditor(
-                      context,
-                      controller,
-                      note: note,
-                      attachedEvent: linkedEvent,
-                    ),
+              ],
+            ),
+            // Scheduled tab
+            Obx(() {
+              final notes = controller.notes.where((n) => n.archivedAt == null).toList();
+              final activeIds = controller.activeNotes.map((n) => n.id).toSet();
+              if (notes.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('No time-aware notes yet. Tap + to add one.'),
                   ),
                 );
-              }),
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: notes.length,
+                itemBuilder: (context, index) {
+                  final note = notes[index];
+                  final isActive = activeIds.contains(note.id);
+                  final linkedEvent = note.isCalendarLinked
+                      ? calendarController.findEvent(note.calendarEventId, note.calendarId)
+                      : null;
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    color: isActive ? Colors.green.withOpacity(0.08) : null,
+                    child: ListTile(
+                      title: Text(note.title.isEmpty ? 'Untitled note' : note.title),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          Text(
+                            _scheduleLabel(note),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            note.content,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (isActive)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Active now',
+                                style: TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.send),
+                            tooltip: 'Send to G1 dashboard',
+                            onPressed: () => _sendToDashboard(context, note),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete),
+                            onPressed: () async {
+                              await controller.deleteNote(note.id);
+                              if (controller.activeNotes.any((n) => n.id == note.id)) {
+                                await DashboardNoteService.instance.clearNote(
+                                  noteNumber: 1,
+                                );
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      onTap: () => _openEditor(
+                        context,
+                        controller,
+                        note: note,
+                        attachedEvent: linkedEvent,
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+            // Archived tab
+            Obx(() {
+              final archived = controller.archivedNotes;
+              if (archived.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('No archived notes'),
+                  ),
+                );
+              }
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Archived notes',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => controller.clearArchived(),
+                        child: const Text('Clear all'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...archived.map(
+                    (note) => Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      color: Colors.grey.withOpacity(0.08),
+                      child: ListTile(
+                        title: Text(
+                          note.title.isEmpty ? 'Archived note' : note.title,
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            Text(
+                              _scheduleLabel(note),
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              note.content,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          tooltip: 'Delete',
+                          onPressed: () => controller.deleteNote(note.id),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
           ],
-        );
-      }),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _openEditor(context, controller),
-        child: const Icon(Icons.add),
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _openEditor(context, controller),
+          child: const Icon(Icons.add),
+        ),
       ),
     );
   }
@@ -286,13 +369,6 @@ class _CalendarSection extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Auto-display next event on glasses'),
-                subtitle: const Text('When events refresh and glasses are connected'),
-                value: calendarController.autoSendNextEvent.value,
-                onChanged: (val) => calendarController.setAutoSendNextEvent(val),
               ),
               if (error != null)
                 Padding(
@@ -695,6 +771,11 @@ Future<void> _openEditor(
       : [DateTime.now().weekday];
   int startMinutes = note?.startMinutes ?? (DateTime.now().hour * 60 + DateTime.now().minute);
   int endMinutes = note?.endMinutes ?? startMinutes + 60;
+  int preOffsetMinutes = note?.preOffsetMinutes ?? 10;
+  int postOffsetMinutes = note?.postOffsetMinutes ?? 10;
+  bool attachToAllOccurrences = note?.attachToAllOccurrences ?? (linkedEvent.value?.isRecurring ?? false);
+  bool isLinkedEventRecurring = linkedEvent.value?.isRecurring ?? note?.isRecurringEvent ?? false;
+  final endAction = ValueNotifier<TimeNoteEndAction>(note?.endAction ?? TimeNoteEndAction.delete);
   final titleController = TextEditingController(text: note?.title ?? '');
   final contentController = TextEditingController(text: note?.content ?? '');
 
@@ -786,16 +867,57 @@ Future<void> _openEditor(
                   ),
                   const SizedBox(height: 12),
                   if (linkedEvent.value != null)
-                    _CalendarEventSummary(
-                      event: linkedEvent.value!,
-                      onClear: () {
-                        setState(() {
-                          linkedEvent.value = null;
-                        });
-                      },
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _CalendarEventSummary(
+                          event: linkedEvent.value!,
+                          onClear: () {
+                            setState(() {
+                              linkedEvent.value = null;
+                              isLinkedEventRecurring = false;
+                              attachToAllOccurrences = false;
+                            });
+                          },
+                        ),
+                        if (isLinkedEventRecurring)
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Attach to all occurrences'),
+                            subtitle: const Text('Stay linked across the series'),
+                            value: attachToAllOccurrences,
+                            onChanged: (val) {
+                              setState(() {
+                                attachToAllOccurrences = val;
+                              });
+                            },
+                          ),
+                        const SizedBox(height: 12),
+                        _OffsetFields(
+                          preMinutes: preOffsetMinutes,
+                          postMinutes: postOffsetMinutes,
+                          onChanged: (pre, post) {
+                            setState(() {
+                              preOffsetMinutes = pre;
+                              postOffsetMinutes = post;
+                            });
+                          },
+                        ),
+                        if (!isLinkedEventRecurring || !attachToAllOccurrences)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: _EndActionPicker(
+                              value: endAction.value,
+                              onChanged: (action) {
+                                endAction.value = action;
+                                setState(() {});
+                              },
+                            ),
+                          ),
+                      ],
                     )
                   else ...[
-                    if (!isGeneral.value && recurrence.value == TimeNoteRecurrence.once)
+                    if (!isGeneral.value && recurrence.value == TimeNoteRecurrence.once) ...[
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -826,8 +948,27 @@ Future<void> _openEditor(
                             },
                           ),
                         ],
-                      )
-                    else if (!isGeneral.value)
+                      ),
+                      const SizedBox(height: 12),
+                      _OffsetFields(
+                        preMinutes: preOffsetMinutes,
+                        postMinutes: postOffsetMinutes,
+                        onChanged: (pre, post) {
+                          setState(() {
+                            preOffsetMinutes = pre;
+                            postOffsetMinutes = post;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      _EndActionPicker(
+                        value: endAction.value,
+                        onChanged: (action) {
+                          endAction.value = action;
+                          setState(() {});
+                        },
+                      ),
+                    ] else if (!isGeneral.value)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -892,6 +1033,25 @@ Future<void> _openEditor(
                               ),
                             ],
                           ),
+                          const SizedBox(height: 12),
+                          _OffsetFields(
+                            preMinutes: preOffsetMinutes,
+                            postMinutes: postOffsetMinutes,
+                            onChanged: (pre, post) {
+                              setState(() {
+                                preOffsetMinutes = pre;
+                                postOffsetMinutes = post;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          _EndActionPicker(
+                            value: endAction.value,
+                            onChanged: (action) {
+                              endAction.value = action;
+                              setState(() {});
+                            },
+                          ),
                         ],
                       ),
                   ],
@@ -912,6 +1072,11 @@ Future<void> _openEditor(
                           startMinutes: startMinutes,
                           endMinutes: endMinutes,
                           linkedEvent: linkedEvent.value,
+                          endAction: endAction.value,
+                          preOffsetMinutes: preOffsetMinutes,
+                          postOffsetMinutes: postOffsetMinutes,
+                          attachToAllOccurrences: attachToAllOccurrences,
+                          isRecurringEvent: isLinkedEventRecurring,
                         );
 
                         if (newNote == null) {
@@ -947,6 +1112,11 @@ TimeNote? _buildNote({
   required List<int> weekdays,
   required int startMinutes,
   required int endMinutes,
+  required TimeNoteEndAction endAction,
+  required int preOffsetMinutes,
+  required int postOffsetMinutes,
+  required bool attachToAllOccurrences,
+  required bool isRecurringEvent,
   TimeNote? note,
   DeviceCalendarEvent? linkedEvent,
 }) {
@@ -969,6 +1139,11 @@ TimeNote? _buildNote({
       calendarEnd: linkedEvent.end,
       calendarTitle: linkedEvent.title,
       calendarLocation: linkedEvent.location,
+      endAction: endAction,
+      preOffsetMinutes: preOffsetMinutes,
+      postOffsetMinutes: postOffsetMinutes,
+      attachToAllOccurrences: attachToAllOccurrences && isRecurringEvent,
+      isRecurringEvent: isRecurringEvent,
     );
   }
 
@@ -981,6 +1156,11 @@ TimeNote? _buildNote({
       recurrence: TimeNoteRecurrence.once,
       startMinutes: 0,
       endMinutes: 0,
+      endAction: endAction,
+      preOffsetMinutes: preOffsetMinutes,
+      postOffsetMinutes: postOffsetMinutes,
+      attachToAllOccurrences: false,
+      isRecurringEvent: false,
     );
   }
 
@@ -997,6 +1177,11 @@ TimeNote? _buildNote({
       endDateTime: oneTimeEnd,
       startMinutes: oneTimeStart.hour * 60 + oneTimeStart.minute,
       endMinutes: oneTimeEnd.hour * 60 + oneTimeEnd.minute,
+      endAction: endAction,
+      preOffsetMinutes: preOffsetMinutes,
+      postOffsetMinutes: postOffsetMinutes,
+      attachToAllOccurrences: false,
+      isRecurringEvent: false,
     );
   }
 
@@ -1012,7 +1197,136 @@ TimeNote? _buildNote({
     startMinutes: startMinutes,
     endMinutes: endMinutes,
     weekdays: weekdays,
+    endAction: endAction,
+    preOffsetMinutes: preOffsetMinutes,
+    postOffsetMinutes: postOffsetMinutes,
+    attachToAllOccurrences: false,
+    isRecurringEvent: false,
   );
+}
+
+class _EndActionPicker extends StatelessWidget {
+  const _EndActionPicker({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final TimeNoteEndAction value;
+  final ValueChanged<TimeNoteEndAction> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'After it ends',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Delete'),
+              selected: value == TimeNoteEndAction.delete,
+              onSelected: (_) => onChanged(TimeNoteEndAction.delete),
+            ),
+            ChoiceChip(
+              label: const Text('Archive'),
+              selected: value == TimeNoteEndAction.archive,
+              onSelected: (_) => onChanged(TimeNoteEndAction.archive),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _OffsetFields extends StatelessWidget {
+  const _OffsetFields({
+    required this.preMinutes,
+    required this.postMinutes,
+    required this.onChanged,
+  });
+
+  final int preMinutes;
+  final int postMinutes;
+  final void Function(int pre, int post) onChanged;
+
+  List<int> get _options => const [0, 5, 10, 15, 30, 60];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Display window',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Show before (min)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    isExpanded: true,
+                    isDense: true,
+                    value: preMinutes,
+                    items: _options
+                        .map((v) => DropdownMenuItem(
+                              value: v,
+                              child: Text('$v'),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      onChanged(v, postMinutes);
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Keep after (min)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    isExpanded: true,
+                    isDense: true,
+                    value: postMinutes,
+                    items: _options
+                        .map((v) => DropdownMenuItem(
+                              value: v,
+                              child: Text('$v'),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      onChanged(preMinutes, v);
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 class _CalendarEventSummary extends StatelessWidget {
