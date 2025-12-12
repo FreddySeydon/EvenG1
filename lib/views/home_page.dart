@@ -12,6 +12,8 @@ import 'package:demo_ai_even/views/even_list_page.dart';
 import 'package:demo_ai_even/views/features_page.dart';
 import 'package:demo_ai_even/views/notification_whitelist_page.dart';
 import 'package:demo_ai_even/controllers/calendar_controller.dart';
+import 'package:demo_ai_even/controllers/weather_controller.dart';
+import 'package:demo_ai_even/services/weather_service.dart';
 import 'package:demo_ai_even/services/time_notes_scheduler.dart';
 import 'package:demo_ai_even/views/addons/addon_dashboard_section.dart';
 import 'package:demo_ai_even/views/addons/addon_installed_list.dart';
@@ -41,7 +43,7 @@ class _HomePageState extends State<HomePage> {
     // Sync with native service state on init
     _syncWithNativeService();
     
-    BleManager.get().onStatusChanged = () {
+    BleManager.get().onStatusChanged = () async {
       _refreshPage();
       _checkNotificationPermission();
       // Start notification service when glasses connect
@@ -57,12 +59,16 @@ class _HomePageState extends State<HomePage> {
         }
 
         // Align dashboard layout/time on connect to keep both lenses consistent.
-        _syncDashboardOnConnect();
+        await _syncDashboardOnConnect();
+
+        // Also sync time/weather with a second pass to ensure both lenses show the same data.
+        await _syncWeatherOnConnect();
       }
     };
     // If already connected on launch (native service restored), sync immediately.
     if (BleManager.get().isConnected) {
-      _syncDashboardOnConnect();
+      // Run sequentially to avoid racing weather against layout resync.
+      _syncDashboardOnConnect().then((_) => _syncWeatherOnConnect());
     }
     _checkNotificationPermission();
   }
@@ -79,28 +85,19 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _syncDashboardOnConnect() async {
     try {
-      // Use full dashboard (mode 0) for calendar/time pane.
-      await Proto.setDashboardMode(modeId: 0);
-      // Send a neutral time/weather baseline; WeatherController will refresh separately.
-      await Proto.setTimeAndWeather(
-        weatherIconId: 0x00,
-        temperature: 0,
-      );
-      // Try to populate the calendar pane with the next event if available.
+      await _resyncLayout();
+
+      // Try to populate the calendar pane quickly using cached events if available.
       bool sent = false;
       try {
         if (Get.isRegistered<CalendarController>()) {
           final calendar = Get.find<CalendarController>();
-          if (calendar.hasPermission.value) {
-            // Ensure events are loaded before attempting to send.
-            if (calendar.events.isEmpty) {
-              await calendar.refreshCalendarsAndEvents();
-            }
+          if (calendar.hasPermission.value && calendar.events.isNotEmpty) {
             sent = await calendar.sendNextEventToGlasses(fullSync: true);
           }
         }
       } catch (e) {
-        print('Error sending next calendar event on connect: $e');
+        print('Error sending cached calendar event on connect: $e');
       }
 
       if (!sent) {
@@ -112,6 +109,24 @@ class _HomePageState extends State<HomePage> {
           fullSync: true,
         );
       }
+
+      // Refresh calendars in the background and push again when ready.
+      if (Get.isRegistered<CalendarController>()) {
+        final calendar = Get.find<CalendarController>();
+        Future(() async {
+          try {
+            if (calendar.hasPermission.value) {
+              await calendar.refreshCalendarsAndEvents();
+              await calendar.sendNextEventToGlasses(fullSync: true);
+              await _resyncLayout(withDelay: true);
+              _resyncLayout(withDelay: true);
+            }
+          } catch (e) {
+            print('Background calendar refresh/send failed: $e');
+          }
+        });
+      }
+
       // Kick timed/general note scheduler (includes world time hijack) to refresh the note slot.
       if (Get.isRegistered<TimeNotesScheduler>()) {
         await Get.find<TimeNotesScheduler>().resendActiveNow();
@@ -119,6 +134,100 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       print('Error syncing dashboard on connect: $e');
     }
+  }
+
+  Future<void> _syncWeatherOnConnect() async {
+    try {
+      if (!Get.isRegistered<WeatherController>()) return;
+      final weatherController = Get.find<WeatherController>();
+      // Give the connection a brief moment to settle before sending packets.
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Always fetch once (foreground flow) on connect to prime weather data.
+      try {
+        print('Weather sync on connect: fetching (foreground)...');
+        await weatherController.fetchAndSendWeather(
+          silent: true,
+          treatAsForeground: true,
+        );
+      } catch (e) {
+        print('Weather fetch on connect failed: $e');
+      }
+
+      // Try to send up to 3 times (covers occasional one-arm dropouts right after connect).
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        final sent = await weatherController.sendCurrentWeatherToGlasses();
+        print('Weather sync on connect attempt $attempt sent=$sent');
+        if (sent) {
+          break;
+        }
+        // If sending failed and we have no data, attempt a quick refetch before next loop.
+        if (weatherController.weatherData.value == null) {
+          try {
+            print('Weather sync on connect: refetching due to missing data (attempt $attempt)');
+            await weatherController.fetchAndSendWeather(
+              silent: true,
+              treatAsForeground: true,
+            );
+          } catch (e) {
+            print('Weather refetch on connect failed: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('Error syncing weather on connect: $e');
+    }
+  }
+
+  Future<void> _resyncLayout({bool withDelay = false}) async {
+    if (withDelay) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    await Proto.setDashboardMode(modeId: 0);
+
+    // Preserve current weather on resync when available; otherwise send placeholder.
+    int iconId = 0x00;
+    int temperature = 0;
+    bool useFahrenheit = false;
+    bool use12HourFormat = true;
+
+    if (Get.isRegistered<WeatherController>()) {
+      final weatherController = Get.find<WeatherController>();
+      final data = weatherController.weatherData.value;
+      if (data != null) {
+        iconId = data.weatherIconId;
+        temperature = data.temperature.round().clamp(-128, 127);
+        useFahrenheit = weatherController.useFahrenheit.value;
+        use12HourFormat = weatherController.use12HourFormat.value;
+      }
+    }
+
+    await Proto.setTimeAndWeather(
+      weatherIconId: iconId,
+      temperature: temperature,
+      useFahrenheit: useFahrenheit,
+      use12HourFormat: use12HourFormat,
+    );
+  }
+
+  Future<void> _sendWeatherDualPass(WeatherController controller, WeatherData data) async {
+    final tempCelsius = data.temperature.round().clamp(-128, 127);
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(
+      weatherIconId: data.weatherIconId,
+      temperature: tempCelsius,
+      useFahrenheit: controller.useFahrenheit.value,
+      use12HourFormat: controller.use12HourFormat.value,
+    );
+    await Future.delayed(const Duration(milliseconds: 300));
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(
+      weatherIconId: data.weatherIconId,
+      temperature: tempCelsius,
+      useFahrenheit: controller.useFahrenheit.value,
+      use12HourFormat: controller.use12HourFormat.value,
+    );
   }
 
   void _refreshPage() => setState(() {});

@@ -2,13 +2,23 @@ import 'package:dio/dio.dart';
 
 class ApiOpenRouterService {
   late Dio _dio;
+  static const String _apiKey = String.fromEnvironment(
+    'OPENROUTER_API_KEY',
+    defaultValue: '',
+  );
 
   ApiOpenRouterService() {
+    if (_apiKey.isEmpty) {
+      throw StateError(
+        'OpenRouter API key not configured. Set OPENROUTER_API_KEY via --dart-define (e.g. --dart-define-from-file=secrets.json).',
+      );
+    }
+
     _dio = Dio(
       BaseOptions(
         baseUrl: 'https://openrouter.ai/api/v1',
         headers: {
-          'Authorization': 'Your token here',
+          'Authorization': 'Bearer $_apiKey',
           'Content-Type': 'application/json',
         },
       ),
@@ -49,4 +59,3 @@ class ApiOpenRouterService {
     }
   }
 }
-

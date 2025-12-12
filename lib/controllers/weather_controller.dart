@@ -34,6 +34,7 @@ class WeatherController extends GetxController {
   static const String _prefKeyLastLongitude = 'weather_last_longitude';
   static const String _prefKeyLastLocationTimestamp = 'weather_last_location_timestamp';
   static const String _prefKeyLocationAccuracy = 'weather_location_accuracy';
+  bool _prefetchedOnce = false;
 
   @override
   void onInit() {
@@ -42,6 +43,8 @@ class WeatherController extends GetxController {
     _loadPreferences().then((_) {
       // Apply location accuracy to weather service
       _weatherService.setLocationAccuracy(locationAccuracy.value);
+      // Warm the cache once so we have data to send as soon as the app starts.
+      _prefetchWeatherIfNeeded();
       // Start auto-update if enabled after preferences are loaded
       if (isAutoUpdateEnabled.value) {
         startAutoUpdate();
@@ -223,8 +226,9 @@ class WeatherController extends GetxController {
 
   /// Fetch weather for current location and send to glasses
   /// [silent]: If true, don't set error messages (for auto-updates)
-  Future<void> fetchAndSendWeather({bool silent = false}) async {
-    print('fetchAndSendWeather called: silent=$silent, isConnected=${BleManager.get().isConnected}');
+  /// [treatAsForeground]: If true, force foreground flow even if app is marked background (useful on fresh connect)
+  Future<void> fetchAndSendWeather({bool silent = false, bool treatAsForeground = false}) async {
+    print('fetchAndSendWeather called: silent=$silent, isConnected=${BleManager.get().isConnected}, treatAsForeground=$treatAsForeground');
     
     if (!BleManager.get().isConnected) {
       print('fetchAndSendWeather: Glasses not connected, returning');
@@ -241,7 +245,7 @@ class WeatherController extends GetxController {
 
     try {
       print('fetchAndSendWeather: Fetching weather data...');
-      final isInBackground = BleManager.get().isAppInBackground();
+      final isInBackground = treatAsForeground ? false : BleManager.get().isAppInBackground();
       final hasCachedLocation = _hasCachedLocation;
       final cachedAge = _cachedLocationAge;
       print(
@@ -452,10 +456,10 @@ class WeatherController extends GetxController {
         return;
       }
 
-      // Send to glasses (temperature is always in Celsius, flag controls display)
-      final success = await Proto.setTimeAndWeather(
-        weatherIconId: resolvedWeather.weatherIconId,
-        temperature: tempCelsius,
+      // Send to glasses with layout sync to avoid split dashboards.
+      final success = await _sendWeatherWithResync(
+        resolvedWeather,
+        tempCelsius,
         useFahrenheit: useFahrenheit.value,
         use12HourFormat: use12HourFormat.value,
       );
@@ -527,9 +531,9 @@ class WeatherController extends GetxController {
         return false;
       }
 
-      final success = await Proto.setTimeAndWeather(
-        weatherIconId: weather.weatherIconId,
-        temperature: tempCelsius,
+      final success = await _sendWeatherWithResync(
+        weather,
+        tempCelsius,
         useFahrenheit: useFahrenheit.value,
         use12HourFormat: use12HourFormat.value,
       );
@@ -548,6 +552,38 @@ class WeatherController extends GetxController {
     }
   }
 
+  Future<bool> _sendWeatherWithResync(
+    WeatherData weather,
+    int tempCelsius, {
+    required bool useFahrenheit,
+    required bool use12HourFormat,
+  }) async {
+    try {
+      print('Weather send: starting resync send (icon=${weather.weatherIconId}, temp=$tempCelsius, F=$useFahrenheit, 12h=$use12HourFormat)');
+      await Proto.setDashboardMode(modeId: 0);
+      final first = await Proto.setTimeAndWeather(
+        weatherIconId: weather.weatherIconId,
+        temperature: tempCelsius,
+        useFahrenheit: useFahrenheit,
+        use12HourFormat: use12HourFormat,
+      );
+      // Reapply after a small delay to ensure both arms are synced.
+      await Future.delayed(const Duration(milliseconds: 300));
+      await Proto.setDashboardMode(modeId: 0);
+      final second = await Proto.setTimeAndWeather(
+        weatherIconId: weather.weatherIconId,
+        temperature: tempCelsius,
+        useFahrenheit: useFahrenheit,
+        use12HourFormat: use12HourFormat,
+      );
+      print('Weather send: first=$first second=$second');
+      return first && second;
+    } catch (e) {
+      print('Error sending weather with resync: $e');
+      return false;
+    }
+  }
+
   /// Format error message for user display
   String _formatErrorMessage(dynamic error) {
     final errorString = error.toString();
@@ -557,7 +593,7 @@ class WeatherController extends GetxController {
     } else if (errorString.contains('Location permissions')) {
       return 'Location permission denied. Please grant location permission in app settings.';
     } else if (errorString.contains('API key not configured')) {
-      return 'Weather API key not configured. Please set your OpenWeatherMap API key in weather_service.dart';
+      return 'Weather API key not configured. Set WEATHER_API_KEY via --dart-define (e.g. --dart-define-from-file=secrets.json).';
     } else if (errorString.contains('Weather API')) {
       return 'Failed to fetch weather data. Please check your internet connection and API key.';
     } else if (errorString.contains('network') || errorString.contains('connection')) {
@@ -716,5 +752,21 @@ class WeatherController extends GetxController {
     errorMessage.value = null;
   }
 
-}
+  /// Prefetch weather once on startup to populate cache for later sends.
+  Future<void> _prefetchWeatherIfNeeded() async {
+    if (_prefetchedOnce) return;
+    _prefetchedOnce = true;
+    try {
+      final weather = await _weatherService.fetchWeatherForCurrentLocation(
+        useLastKnownLocation: true,
+      );
+      weatherData.value = weather;
+      lastUpdateTime.value = DateTime.now();
+      await _saveLastKnownLocation(weather.latitude, weather.longitude);
+      print('Weather prefetch: cached ${weather.cityName} (${weather.latitude},${weather.longitude})');
+    } catch (e) {
+      print('Weather prefetch failed: $e');
+    }
+  }
 
+}

@@ -570,56 +570,43 @@ class Proto {
     print('${DateTime.now()} setTimeAndWeather: icon=$weatherIconId, temp=$temperature, fahrenheit=$useFahrenheit, 12h=$use12HourFormat');
     print('  Time: Local=${localTime.toIso8601String()}, SentAsUTC=${sentTimeUtc.toIso8601String()}, timeSeconds=$timeSeconds, timeMs=$timeMilliseconds, seq=$sequence');
     
-    // Send to left arm first
-    var retL = await BleManager.request(data, lr: "L", timeoutMs: 1500);
-    
-    print('${DateTime.now()} setTimeAndWeather L response: ${retL.data.hexString}');
-    
-    if (retL.isTimeout) {
-      print('setTimeAndWeather: Timeout on L');
+    // Helper to send to a single arm with one retry
+    Future<bool> _sendToArm(String lr) async {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final ret = await BleManager.request(data, lr: lr, timeoutMs: 1500);
+        print('${DateTime.now()} setTimeAndWeather ${lr} response (attempt ${attempt + 1}): ${ret.data.hexString}');
+
+        if (ret.isTimeout) {
+          print('setTimeAndWeather: Timeout on $lr (attempt ${attempt + 1})');
+        } else {
+          final success = ret.data.length >= 6 &&
+              ret.data[0].toInt() == 0x06 &&
+              ret.data[1].toInt() == 0x15 &&
+              ret.data[3].toInt() == sequence &&
+              ret.data[4].toInt() == 0x01 &&
+              ret.data[5].toInt() == 0x00;
+          if (success) {
+            return true;
+          }
+          print('setTimeAndWeather: $lr arm failed (attempt ${attempt + 1}) - response: ${ret.data.hexString}, expected seq=$sequence');
+        }
+
+        // brief pause before retry
+        await Future.delayed(const Duration(milliseconds: 150));
+      }
       return false;
     }
-    
-    // Validate left response: [0x06, 0x15, 0x00, sequence, subcommand, status]
-    // Response format echoes the command header, with status at index 5
-    // Status: 0x00 = success, 0xCA or other = failure
-    bool leftSuccess = retL.data.length >= 6 &&
-        retL.data[0].toInt() == 0x06 &&
-        retL.data[1].toInt() == 0x15 &&
-        retL.data[3].toInt() == sequence &&
-        retL.data[4].toInt() == 0x01 &&
-        retL.data[5].toInt() == 0x00;  // Status code at index 5 (0x00 = success)
-    
-    if (!leftSuccess) {
-      print('setTimeAndWeather: Left arm failed - response: ${retL.data.hexString}, expected seq=$sequence');
-      return false;
-    }
-    
-    // Send to right arm
-    var retR = await BleManager.request(data, lr: "R", timeoutMs: 1500);
-    
-    print('${DateTime.now()} setTimeAndWeather R response: ${retR.data.hexString}');
-    
-    if (retR.isTimeout) {
-      print('setTimeAndWeather: Timeout on R');
-      return false;
-    }
-    
-    // Validate right response
-    bool rightSuccess = retR.data.length >= 6 &&
-        retR.data[0].toInt() == 0x06 &&
-        retR.data[1].toInt() == 0x15 &&
-        retR.data[3].toInt() == sequence &&
-        retR.data[4].toInt() == 0x01 &&
-        retR.data[5].toInt() == 0x00;  // Status code at index 5 (0x00 = success)
-    
-    if (rightSuccess) {
+
+    final leftSuccess = await _sendToArm("L");
+    final rightSuccess = await _sendToArm("R");
+
+    if (leftSuccess && rightSuccess) {
       print('setTimeAndWeather: Success on both arms');
       return true;
-    } else {
-      print('setTimeAndWeather: Right arm failed - response: ${retR.data.hexString}, expected seq=$sequence');
-      return false;
     }
+
+    print('setTimeAndWeather: Result left=$leftSuccess right=$rightSuccess');
+    return false;
   }
 
   static int _dashboardModeSeq = 0;

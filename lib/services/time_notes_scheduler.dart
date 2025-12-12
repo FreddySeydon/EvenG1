@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 
 import '../ble_manager.dart';
 import '../controllers/time_notes_controller.dart';
+import '../controllers/weather_controller.dart';
 import '../models/time_note.dart';
 import 'dashboard_note_service.dart';
 import 'proto.dart';
@@ -65,18 +66,16 @@ class TimeNotesScheduler extends GetxService {
 
       if (general != null && (_activeHoldUntil == null || now.isAfter(_activeHoldUntil!))) {
         // Hard-sync layout, then send note, then re-sync layout to avoid split dashboards.
-        await Proto.setDashboardMode(modeId: 0);
-        await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
-        await Future.delayed(const Duration(milliseconds: 300));
+        await _resyncDashboard();
         final payload = await _notePayload(general);
         final sent = await DashboardNoteService.instance.sendDashboardNote(
           title: payload.title,
           text: payload.text,
           noteNumber: 1,
         );
-        await Future.delayed(const Duration(milliseconds: 300));
-        await Proto.setDashboardMode(modeId: 0);
-        await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+        await _resyncDashboard(withDelay: true);
+        // Extra delayed resync to catch flaky arms.
+        _resyncDashboard(withDelay: true);
         if (sent) {
           _lastGeneralNoteId = general.id;
         }
@@ -88,17 +87,14 @@ class TimeNotesScheduler extends GetxService {
       // No general note: if world time is enabled, show it solo.
       final world = await _worldTimeOnlyPayload();
       if (world != null) {
-        await Proto.setDashboardMode(modeId: 0);
-        await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
-        await Future.delayed(const Duration(milliseconds: 300));
+        await _resyncDashboard();
         await DashboardNoteService.instance.sendDashboardNote(
           title: world.title,
           text: world.text,
           noteNumber: 1,
         );
-        await Future.delayed(const Duration(milliseconds: 300));
-        await Proto.setDashboardMode(modeId: 0);
-        await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+        await _resyncDashboard(withDelay: true);
+        _resyncDashboard(withDelay: true);
         _lastActiveNoteId = null;
         _lastGeneralNoteId = null;
         _lastSent.removeWhere((_, __) => true);
@@ -111,17 +107,14 @@ class TimeNotesScheduler extends GetxService {
       }
 
       // No notes at all: show a placeholder prompt.
-      await Proto.setDashboardMode(modeId: 0);
-      await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
-      await Future.delayed(const Duration(milliseconds: 300));
+      await _resyncDashboard();
       await DashboardNoteService.instance.sendDashboardNote(
         title: 'No notes yet',
         text: 'Add notes in the app to display them here.',
         noteNumber: 1,
       );
-      await Future.delayed(const Duration(milliseconds: 300));
-      await Proto.setDashboardMode(modeId: 0);
-      await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+      await _resyncDashboard(withDelay: true);
+      _resyncDashboard(withDelay: true);
       _lastActiveNoteId = null;
       _lastGeneralNoteId = _placeholderId;
       _lastSent.removeWhere((_, __) => true);
@@ -138,9 +131,7 @@ class TimeNotesScheduler extends GetxService {
     if (!BleManager.get().isConnected) return;
 
     // Ensure consistent full dashboard layout before pushing the quick note.
-    await Proto.setDashboardMode(modeId: 0);
-    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
-    await Future.delayed(const Duration(milliseconds: 300));
+    await _resyncDashboard();
 
     final payload = await _notePayload(note);
     final success = await DashboardNoteService.instance.sendDashboardNote(
@@ -148,14 +139,36 @@ class TimeNotesScheduler extends GetxService {
       text: payload.text,
       noteNumber: 1,
     );
-    await Future.delayed(const Duration(milliseconds: 300));
-    await Proto.setDashboardMode(modeId: 0);
-    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+    await _resyncDashboard(withDelay: true);
+    _resyncDashboard(withDelay: true);
 
     if (success) {
       _markSent(note, now);
       _lastActiveNoteId = note.id;
     }
+  }
+
+  Future<void> _resyncDashboard({bool withDelay = false}) async {
+    if (withDelay) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    await Proto.setDashboardMode(modeId: 0);
+    await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+    await _restoreWeatherIfAvailable();
+  }
+
+  Future<void> _restoreWeatherIfAvailable() async {
+    if (!Get.isRegistered<WeatherController>()) return;
+    final weatherController = Get.find<WeatherController>();
+    final data = weatherController.weatherData.value;
+    if (data == null) return;
+    final temp = data.temperature.round().clamp(-128, 127);
+    await Proto.setTimeAndWeather(
+      weatherIconId: data.weatherIconId,
+      temperature: temp,
+      useFahrenheit: weatherController.useFahrenheit.value,
+      use12HourFormat: weatherController.use12HourFormat.value,
+    );
   }
 
   bool _shouldSend(TimeNote note, DateTime now) {

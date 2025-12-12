@@ -1,6 +1,9 @@
 import 'dart:typed_data';
 
+import 'package:get/get.dart';
+
 import '../ble_manager.dart';
+import '../controllers/weather_controller.dart';
 import '../models/calendar_item.dart';
 import 'proto.dart';
 
@@ -46,8 +49,23 @@ class CalendarService {
       await Future.delayed(const Duration(milliseconds: 300));
       await Proto.setDashboardMode(modeId: 0);
       await Proto.setTimeAndWeather(weatherIconId: 0x00, temperature: 0);
+      await _restoreWeatherIfAvailable();
     }
 
     return okLeft && okRight;
+  }
+
+  Future<void> _restoreWeatherIfAvailable() async {
+    if (!Get.isRegistered<WeatherController>()) return;
+    final weatherController = Get.find<WeatherController>();
+    final data = weatherController.weatherData.value;
+    if (data == null) return;
+    final temp = data.temperature.round().clamp(-128, 127);
+    await Proto.setTimeAndWeather(
+      weatherIconId: data.weatherIconId,
+      temperature: temp,
+      useFahrenheit: weatherController.useFahrenheit.value,
+      use12HourFormat: weatherController.use12HourFormat.value,
+    );
   }
 }

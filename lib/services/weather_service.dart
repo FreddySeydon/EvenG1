@@ -31,11 +31,17 @@ class WeatherData {
 
 class WeatherService {
   late Dio _dio;
+  late Dio _fallbackDio;
   
-  // TODO: Replace with your OpenWeatherMap API key
-  // Get a free API key from: https://openweathermap.org/api
-  static const String _apiKey = 'API KEY HERE';
+  // Load OpenWeatherMap API key from build-time environment (set via --dart-define)
+  static const String _apiKey = String.fromEnvironment(
+    'WEATHER_API_KEY',
+    defaultValue: '',
+  );
   static const String _baseUrl = 'https://api.openweathermap.org/data/3.0';
+  static const String _fallbackBaseUrl = 'https://api.openweathermap.org/data/2.5';
+  // Free-tier keys often work better on v2.5; try it first to avoid 3.0 rejections/latency.
+  static const bool _preferLegacyFirst = true;
 
   // Location accuracy preference (default to high for better sub-area precision)
   LocationAccuracyPreference _locationAccuracy = LocationAccuracyPreference.high;
@@ -44,6 +50,14 @@ class WeatherService {
     _dio = Dio(
       BaseOptions(
         baseUrl: _baseUrl,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      ),
+    );
+    _fallbackDio = Dio(
+      BaseOptions(
+        baseUrl: _fallbackBaseUrl,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -59,6 +73,15 @@ class WeatherService {
 
   /// Get current location accuracy preference
   LocationAccuracyPreference get locationAccuracy => _locationAccuracy;
+  bool get _hasApiKey => _apiKey.isNotEmpty;
+
+  void _ensureApiKey() {
+    if (!_hasApiKey) {
+      throw Exception(
+        'OpenWeatherMap API key not configured. Set WEATHER_API_KEY via --dart-define (e.g. --dart-define-from-file=secrets.json).',
+      );
+    }
+  }
 
   /// Convert LocationAccuracyPreference to Geolocator LocationAccuracy
   LocationAccuracy _getLocationAccuracy() {
@@ -229,104 +252,32 @@ class WeatherService {
   /// Fetch weather data from OpenWeatherMap One Call API 3.0
   /// Documentation: https://openweathermap.org/api/one-call-3
   Future<WeatherData> fetchWeather(double latitude, double longitude) async {
-    if (_apiKey == 'YOUR_OPENWEATHERMAP_API_KEY_HERE') {
-      throw Exception('OpenWeatherMap API key not configured. Please set your API key in weather_service.dart');
+    _ensureApiKey();
+
+    // Prefer v2.5 first for free-tier stability; fall back to 3.0.
+    if (_preferLegacyFirst) {
+      try {
+        print('WeatherService: Trying Current Weather 2.5 first');
+        return await _fetchCurrentWeather25(latitude, longitude);
+      } on DioException catch (e) {
+        print('WeatherService: v2.5 failed: $e, attempting One Call 3.0');
+        // Fall through to try 3.0
+      } catch (e) {
+        print('WeatherService: v2.5 failed: $e, attempting One Call 3.0');
+      }
     }
 
+    // Try One Call 3.0; if the key is free-tier (401/429), fall back to Current Weather 2.5.
     try {
-      print('WeatherService: Starting API request to /onecall for lat=$latitude, lon=$longitude');
-      
-      // Use One Call API 3.0 endpoint with timeout
-      // Exclude minutely, hourly, daily, and alerts to get only current weather
-      final response = await _dio.get(
-        '/onecall',
-        queryParameters: {
-          'lat': latitude,
-          'lon': longitude,
-          'appid': _apiKey,
-          'units': 'metric', // Use Celsius
-          'exclude': 'minutely,hourly,daily,alerts', // Only get current weather
-        },
-        options: Options(
-          receiveTimeout: const Duration(seconds: 15),
-          sendTimeout: const Duration(seconds: 10),
-        ),
-      ).timeout(
-        const Duration(seconds: 20),
-        onTimeout: () {
-          print('WeatherService: API request timed out after 20 seconds');
-          throw TimeoutException('Weather API request timed out');
-        },
-      );
-      
-      print('WeatherService: API request completed with status ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-        
-        // Parse current weather data from One Call API 3.0 response
-        final current = data['current'];
-        if (current == null) {
-          throw Exception('Invalid API response: missing current weather data');
-        }
-
-        final temp = (current['temp'] as num?)?.toDouble() ?? 0.0;
-        final weatherArray = current['weather'] as List?;
-        
-        if (weatherArray == null || weatherArray.isEmpty) {
-          throw Exception('Invalid API response: missing weather condition');
-        }
-
-        final weatherMain = weatherArray[0]?['main'] as String? ?? 'Unknown';
-        final weatherId = weatherArray[0]?['id'] as int? ?? 0;
-        
-        // One Call API 3.0 doesn't return city name, so get it via geocoding
-        // Use timeout to prevent hanging
-        String cityName;
-        try {
-          cityName = await getCityNameFromLocation(latitude, longitude).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              print('WeatherService: Geocoding timed out, using default city name');
-              return 'Unknown Location';
-            },
-          );
-        } catch (e) {
-          print('WeatherService: Geocoding failed: $e, using default city name');
-          cityName = 'Unknown Location';
-        }
-        
-        // Determine if it's night time (for icon selection)
-        final now = DateTime.now();
-        final sunrise = current['sunrise'] != null 
-            ? DateTime.fromMillisecondsSinceEpoch((current['sunrise'] as int) * 1000)
-            : null;
-        final sunset = current['sunset'] != null
-            ? DateTime.fromMillisecondsSinceEpoch((current['sunset'] as int) * 1000)
-            : null;
-        
-        bool isNight = false;
-        if (sunrise != null && sunset != null) {
-          isNight = now.isBefore(sunrise) || now.isAfter(sunset);
-        } else {
-          // Fallback: assume night if current hour is between 6 PM and 6 AM
-          isNight = now.hour >= 18 || now.hour < 6;
-        }
-
-        final iconId = mapWeatherConditionToIconId(weatherMain, weatherId, isNight);
-        
-        return WeatherData(
-          cityName: cityName,
-          temperature: temp,
-          weatherIconId: iconId,
-          condition: weatherMain,
-          latitude: latitude,
-          longitude: longitude,
-        );
-      } else {
-        throw Exception('Weather API returned status code: ${response.statusCode}');
-      }
+      return await _fetchOneCall3(latitude, longitude);
     } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final message = e.response?.data is Map ? (e.response?.data['message'] as String?) : null;
+      final isFreeKeyError = statusCode == 401 || statusCode == 429;
+      if (isFreeKeyError) {
+        print('WeatherService: One Call 3.0 rejected the key ($statusCode ${message ?? ''}), falling back to Current Weather 2.5');
+        return await _fetchCurrentWeather25(latitude, longitude);
+      }
       if (e.response != null) {
         final statusCode = e.response?.statusCode;
         final errorData = e.response?.data;
@@ -346,6 +297,157 @@ class WeatherService {
     } catch (e) {
       throw Exception('Error fetching weather: $e');
     }
+  }
+
+  Future<WeatherData> _fetchOneCall3(double latitude, double longitude) async {
+    print('WeatherService: Starting API request to /onecall for lat=$latitude, lon=$longitude');
+
+    final response = await _dio
+        .get(
+          '/onecall',
+          queryParameters: {
+            'lat': latitude,
+            'lon': longitude,
+            'appid': _apiKey,
+            'units': 'metric', // Use Celsius
+            'exclude': 'minutely,hourly,daily,alerts', // Only get current weather
+          },
+          options: Options(
+            receiveTimeout: const Duration(seconds: 15),
+            sendTimeout: const Duration(seconds: 10),
+          ),
+        )
+        .timeout(
+          const Duration(seconds: 20),
+          onTimeout: () {
+            print('WeatherService: API request timed out after 20 seconds');
+            throw TimeoutException('Weather API request timed out');
+          },
+        );
+
+    print('WeatherService: API request completed with status ${response.statusCode}');
+
+    if (response.statusCode != 200) {
+      throw Exception('Weather API returned status code: ${response.statusCode}');
+    }
+
+    final data = response.data;
+    final current = data['current'];
+    if (current == null) {
+      throw Exception('Invalid API response: missing current weather data');
+    }
+
+    final temp = (current['temp'] as num?)?.toDouble() ?? 0.0;
+    final weatherArray = current['weather'] as List?;
+
+    if (weatherArray == null || weatherArray.isEmpty) {
+      throw Exception('Invalid API response: missing weather condition');
+    }
+
+    final weatherMain = weatherArray[0]?['main'] as String? ?? 'Unknown';
+    final weatherId = weatherArray[0]?['id'] as int? ?? 0;
+
+    // One Call API 3.0 doesn't return city name, so get it via geocoding
+    String cityName;
+    try {
+      cityName = await getCityNameFromLocation(latitude, longitude).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('WeatherService: Geocoding timed out, using default city name');
+          return 'Unknown Location';
+        },
+      );
+    } catch (e) {
+      print('WeatherService: Geocoding failed: $e, using default city name');
+      cityName = 'Unknown Location';
+    }
+
+    // Determine if it's night time (for icon selection)
+    final now = DateTime.now();
+    final sunrise = current['sunrise'] != null
+        ? DateTime.fromMillisecondsSinceEpoch((current['sunrise'] as int) * 1000)
+        : null;
+    final sunset = current['sunset'] != null
+        ? DateTime.fromMillisecondsSinceEpoch((current['sunset'] as int) * 1000)
+        : null;
+
+    bool isNight = false;
+    if (sunrise != null && sunset != null) {
+      isNight = now.isBefore(sunrise) || now.isAfter(sunset);
+    } else {
+      // Fallback: assume night if current hour is between 6 PM and 6 AM
+      isNight = now.hour >= 18 || now.hour < 6;
+    }
+
+    final iconId = mapWeatherConditionToIconId(weatherMain, weatherId, isNight);
+
+    return WeatherData(
+      cityName: cityName,
+      temperature: temp,
+      weatherIconId: iconId,
+      condition: weatherMain,
+      latitude: latitude,
+      longitude: longitude,
+    );
+  }
+
+  Future<WeatherData> _fetchCurrentWeather25(double latitude, double longitude) async {
+    print('WeatherService: Starting fallback API request to /weather (v2.5) for lat=$latitude, lon=$longitude');
+
+    final response = await _fallbackDio
+        .get(
+          '/weather',
+          queryParameters: {
+            'lat': latitude,
+            'lon': longitude,
+            'appid': _apiKey,
+            'units': 'metric',
+          },
+          options: Options(
+            receiveTimeout: const Duration(seconds: 15),
+            sendTimeout: const Duration(seconds: 10),
+          ),
+        )
+        .timeout(
+          const Duration(seconds: 20),
+          onTimeout: () {
+            print('WeatherService: v2.5 API request timed out after 20 seconds');
+            throw TimeoutException('Weather API request timed out');
+          },
+        );
+
+    print('WeatherService: v2.5 API request completed with status ${response.statusCode}');
+
+    if (response.statusCode != 200) {
+      throw Exception('Weather API returned status code: ${response.statusCode}');
+    }
+
+    final data = response.data;
+    final main = data['main'];
+    final weatherArray = data['weather'] as List?;
+
+    if (main == null || weatherArray == null || weatherArray.isEmpty) {
+      throw Exception('Invalid API response: missing weather data');
+    }
+
+    final temp = (main['temp'] as num?)?.toDouble() ?? 0.0;
+    final weatherMain = weatherArray[0]?['main'] as String? ?? 'Unknown';
+    final weatherId = weatherArray[0]?['id'] as int? ?? 0;
+    final cityName = data['name'] as String? ?? 'Unknown Location';
+
+    // Infer day/night from icon code if present
+    final iconCode = weatherArray[0]?['icon'] as String?;
+    final isNight = iconCode?.endsWith('n') ?? false;
+    final iconId = mapWeatherConditionToIconId(weatherMain, weatherId, isNight);
+
+    return WeatherData(
+      cityName: cityName,
+      temperature: temp,
+      weatherIconId: iconId,
+      condition: weatherMain,
+      latitude: latitude,
+      longitude: longitude,
+    );
   }
 
   /// Map weather condition from API to protocol icon ID
@@ -591,4 +693,3 @@ class WeatherService {
     }
   }
 }
-
