@@ -824,31 +824,34 @@ Future<void> _openEditor(
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      const Text('Recurrence:'),
-                      const SizedBox(width: 12),
-                      DropdownButton<TimeNoteRecurrence>(
-                        value: recurrence.value,
-                        items: const [
-                          DropdownMenuItem(
-                            value: TimeNoteRecurrence.once,
-                            child: Text('One-time'),
-                          ),
-                          DropdownMenuItem(
-                            value: TimeNoteRecurrence.weekly,
-                            child: Text('Weekly'),
-                          ),
-                        ],
-                        onChanged: linkedEvent.value != null
-                            ? null
-                            : (val) {
-                                if (val != null) {
-                                  setState(() {
-                                    recurrence.value = val;
-                                  });
-                                }
-                              },
-                      ),
-                      const Spacer(),
+                      if (!isGeneral.value) ...[
+                        const Text('Recurrence:'),
+                        const SizedBox(width: 12),
+                        DropdownButton<TimeNoteRecurrence>(
+                          value: recurrence.value,
+                          items: const [
+                            DropdownMenuItem(
+                              value: TimeNoteRecurrence.once,
+                              child: Text('One-time'),
+                            ),
+                            DropdownMenuItem(
+                              value: TimeNoteRecurrence.weekly,
+                              child: Text('Weekly'),
+                            ),
+                          ],
+                          onChanged: linkedEvent.value != null
+                              ? null
+                              : (val) {
+                                  if (val != null) {
+                                    setState(() {
+                                      recurrence.value = val;
+                                    });
+                                  }
+                                },
+                        ),
+                        const Spacer(),
+                      ] else
+                        const Spacer(),
                       Row(
                         children: [
                           const Text('General note'),

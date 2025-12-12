@@ -10,6 +10,9 @@ class DashboardNoteService {
       _instance ??= DashboardNoteService._();
 
   DashboardNoteService._();
+  // Dashboard right pane fits roughly ~31 average-width characters; wrap earlier
+  // to keep words intact and avoid device-side mid-word breaks.
+  static const _maxCharsPerLine = 31;
 
   /// Send a dashboard note into a numbered quick-note slot (1-4).
   /// Uses the Quick Note Add (0x1E) command observed in the Fahrplan app.
@@ -22,10 +25,13 @@ class DashboardNoteService {
       return false;
     }
 
+    final formattedTitle = _wrapText(title);
+    final formattedText = _wrapText(text);
+
     final packet = _buildAddCommand(
       noteNumber: noteNumber,
-      title: title,
-      text: text,
+      title: formattedTitle,
+      text: formattedText,
     );
 
     return await _sendToBoth(packet);
@@ -120,5 +126,48 @@ class DashboardNoteService {
       0x00,
       0x00,
     ]);
+  }
+
+  String _wrapText(String input) {
+    // Dashboard quick notes wrap around 17 characters; insert our own breaks to
+    // avoid mid-word splits on the glasses.
+    final normalized = input.replaceAll('\r\n', '\n');
+    final lines = <String>[];
+
+    for (final paragraph in normalized.split('\n')) {
+      final words = paragraph.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+      if (words.isEmpty) {
+        lines.add('');
+        continue;
+      }
+
+      var buffer = StringBuffer();
+      var length = 0;
+
+      for (final word in words) {
+        final wordLength = word.length;
+        if (length == 0) {
+          buffer.write(word);
+          length = wordLength;
+          continue;
+        }
+
+        if (length + 1 + wordLength <= _maxCharsPerLine) {
+          buffer.write(' ');
+          buffer.write(word);
+          length += 1 + wordLength;
+        } else {
+          lines.add(buffer.toString());
+          buffer = StringBuffer(word);
+          length = wordLength;
+        }
+      }
+
+      if (length > 0) {
+        lines.add(buffer.toString());
+      }
+    }
+
+    return lines.join('\n');
   }
 }
