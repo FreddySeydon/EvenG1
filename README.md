@@ -84,6 +84,20 @@ This section documents all the major changes and new features that have been add
   - `PinTextController`: Manages Pin Text notes and dashboard mode
   - `WeatherController`: Manages weather data and updates
 
+## Build & Run (with dart-define secrets)
+
+Use `secrets.json` (already in the repo) to pass API keys via `--dart-define-from-file`.
+
+- Debug run: `flutter run --dart-define-from-file=secrets.json`
+- Release APK:
+  1. Ensure signing config is set in `android/app/build.gradle` (upload keystore + `gradle.properties` entries: `MYAPP_UPLOAD_STORE_FILE`, `MYAPP_UPLOAD_KEY_ALIAS`, `MYAPP_UPLOAD_STORE_PASSWORD`, `MYAPP_UPLOAD_KEY_PASSWORD`).
+  2. Fetch deps: `flutter pub get`
+  3. Build: `flutter build apk --release --dart-define-from-file=secrets.json`
+  4. Output: `build/app/outputs/flutter-apk/app-release.apk`
+- Play Store bundle (optional): `flutter build appbundle --release --dart-define-from-file=secrets.json` (output at `build/app/outputs/bundle/release/app-release.aab`)
+- Install for a quick check: `adb install -r build/app/outputs/flutter-apk/app-release.apk`
+- Verify signing (optional): `apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk`
+
 ### Technical Changes
 - Integration of multiple third-party APIs (OpenRouter, OpenWeatherMap, Google Cloud Speech-to-Text)
 - Enhanced Bluetooth communication handling
@@ -326,7 +340,6 @@ mode.
    - Description: The total number of pages. 
 - data (Data): 
    - Description: The actual data being transmitted in this package.
-
 
 
 

@@ -38,16 +38,15 @@ class BmpUpdateManager {
       final pack = multiPacks[index];  
       // address in glasses [0x00, 0x1c, 0x00, 0x00] , taken in the first package
       Uint8List data = index == 0 ? Utils.addPrefixToUint8List([0x15, index & 0xff, 0x00, 0x1c, 0x00, 0x00],  pack) : Utils.addPrefixToUint8List([0x15, index & 0xff], pack);
-      print("${DateTime.now()} updateBmp----data---*${data.length}---*$data----------");
 
       await BleManager.sendData(
           data,
           lr: lr);
 
       if (Platform.isIOS) {
-        await Future.delayed(Duration(milliseconds: 8)); // 4 6 10 14  30
+        await Future.delayed(const Duration(milliseconds: 4)); // trimmed delay to speed up
       } else {
-        await Future.delayed(Duration(milliseconds: 5));  // 5
+        await Future.delayed(const Duration(milliseconds: 2)); // trimmed delay to speed up
       }
 
       var offset = index * packLen;
@@ -122,7 +121,10 @@ class BmpUpdateManager {
 
   void _onProgressCall(String lr, int offset, int index, int total) {
     double progress = (offset / total) * 100;
-    print("${DateTime.now()} BmpUpdate -> Progress: $lr ${progress.toStringAsFixed(2)}%, index: $index");
+    // Throttle progress spam to every ~5th packet to reduce logging overhead.
+    if (index % 5 == 0 || progress >= 99.9) {
+      print("${DateTime.now()} BmpUpdate -> Progress: $lr ${progress.toStringAsFixed(2)}%, index: $index");
+    }
   }
 
 
