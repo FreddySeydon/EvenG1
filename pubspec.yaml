@@ -56,6 +56,10 @@ dependencies:
   xml: ^6.5.0
   # Device calendar access
   device_calendar: ^4.3.3
+  # Date and time formatting
+  intl: ^0.19.0
+  # UUID generation for journey IDs
+  uuid: ^4.0.0
 
 
 dev_dependencies:
