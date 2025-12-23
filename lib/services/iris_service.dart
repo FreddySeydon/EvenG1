@@ -84,7 +84,8 @@ class IrisService {
           if (diff.isNegative || diff.inHours > 12) continue;
 
           final platform = dp.getAttribute('pp') ?? '?';
-          final lineName = tl.getAttribute('fb') ?? dp.getAttribute('l') ?? 'FlixTrain';
+          final rawLineName = tl.getAttribute('fb') ?? dp.getAttribute('l') ?? 'FlixTrain';
+          final lineName = rawLineName.startsWith('FLX') ? rawLineName : 'FLX $rawLineName';
           final tripId = stop.getAttribute('id') ?? '';
 
           // Get path (stations)
