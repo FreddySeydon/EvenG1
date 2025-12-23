@@ -96,31 +96,34 @@ class _SearchTabState extends State<_SearchTab> {
           // From Station
           Text('From', style: TextStyle(fontWeight: FontWeight.bold)),
           SizedBox(height: 8),
-          GetBuilder<BahnController>(
-            builder: (controller) => Autocomplete<BahnStation>(
+          GetX<BahnController>(
+            builder: (controller) {
+              final isSearching = controller.isSearchingStations.value;
+              final selectedStation = controller.selectedFromStation.value;
+              return Autocomplete<BahnStation>(
+              key: ValueKey('from_station'),
               displayStringForOption: (station) => station.name,
               optionsBuilder: (textEditingValue) {
                 if (textEditingValue.text.isEmpty) {
                   return const Iterable<BahnStation>.empty();
                 }
-                controller.searchStations(textEditingValue.text);
                 return controller.stationSearchResults;
               },
               onSelected: (station) {
                 controller.selectedFromStation.value = station;
-                _fromController.text = station.name;
               },
               fieldViewBuilder: (context, textController, focusNode, onSubmitted) {
-                if (_fromController.text.isEmpty && textController.text.isNotEmpty) {
-                  _fromController.text = textController.text;
+                // Use the Autocomplete's built-in controller, sync with local controller
+                if (textController.text.isEmpty && _fromController.text.isNotEmpty) {
+                  textController.text = _fromController.text;
                 }
                 return TextField(
-                  controller: _fromController,
+                  controller: textController,
                   focusNode: focusNode,
                   decoration: InputDecoration(
                     hintText: 'Search departure station...',
                     border: OutlineInputBorder(),
-                    suffixIcon: controller.isSearchingStations.value
+                    suffixIcon: isSearching
                         ? Padding(
                             padding: EdgeInsets.all(12),
                             child: SizedBox(
@@ -129,18 +132,28 @@ class _SearchTabState extends State<_SearchTab> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           )
-                        : controller.selectedFromStation.value != null
+                        : selectedStation != null &&
+                          textController.text == selectedStation.name
                             ? IconButton(
                                 icon: Icon(Icons.check, color: Colors.green),
                                 onPressed: () {},
                               )
-                            : null,
+                            : SizedBox.shrink(),
                   ),
-                  onChanged: (value) => textController.text = value,
+                  onChanged: (value) {
+                    // Clear selection if text changes
+                    if (controller.selectedFromStation.value != null &&
+                        value != controller.selectedFromStation.value!.name) {
+                      controller.selectedFromStation.value = null;
+                    }
+                    controller.searchStations(value);
+                    _fromController.text = value;
+                  },
                   onSubmitted: (_) => onSubmitted(),
                 );
               },
-            ),
+            );
+            },
           ),
 
           SizedBox(height: 16),
@@ -148,31 +161,34 @@ class _SearchTabState extends State<_SearchTab> {
           // To Station
           Text('To', style: TextStyle(fontWeight: FontWeight.bold)),
           SizedBox(height: 8),
-          GetBuilder<BahnController>(
-            builder: (controller) => Autocomplete<BahnStation>(
+          GetX<BahnController>(
+            builder: (controller) {
+              final isSearching = controller.isSearchingStations.value;
+              final selectedStation = controller.selectedToStation.value;
+              return Autocomplete<BahnStation>(
+              key: ValueKey('to_station'),
               displayStringForOption: (station) => station.name,
               optionsBuilder: (textEditingValue) {
                 if (textEditingValue.text.isEmpty) {
                   return const Iterable<BahnStation>.empty();
                 }
-                controller.searchStations(textEditingValue.text);
                 return controller.stationSearchResults;
               },
               onSelected: (station) {
                 controller.selectedToStation.value = station;
-                _toController.text = station.name;
               },
               fieldViewBuilder: (context, textController, focusNode, onSubmitted) {
-                if (_toController.text.isEmpty && textController.text.isNotEmpty) {
-                  _toController.text = textController.text;
+                // Use the Autocomplete's built-in controller, sync with local controller
+                if (textController.text.isEmpty && _toController.text.isNotEmpty) {
+                  textController.text = _toController.text;
                 }
                 return TextField(
-                  controller: _toController,
+                  controller: textController,
                   focusNode: focusNode,
                   decoration: InputDecoration(
                     hintText: 'Search arrival station...',
                     border: OutlineInputBorder(),
-                    suffixIcon: controller.isSearchingStations.value
+                    suffixIcon: isSearching
                         ? Padding(
                             padding: EdgeInsets.all(12),
                             child: SizedBox(
@@ -181,18 +197,28 @@ class _SearchTabState extends State<_SearchTab> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           )
-                        : controller.selectedToStation.value != null
+                        : selectedStation != null &&
+                          textController.text == selectedStation.name
                             ? IconButton(
                                 icon: Icon(Icons.check, color: Colors.green),
                                 onPressed: () {},
                               )
-                            : null,
+                            : SizedBox.shrink(),
                   ),
-                  onChanged: (value) => textController.text = value,
+                  onChanged: (value) {
+                    // Clear selection if text changes
+                    if (controller.selectedToStation.value != null &&
+                        value != controller.selectedToStation.value!.name) {
+                      controller.selectedToStation.value = null;
+                    }
+                    controller.searchStations(value);
+                    _toController.text = value;
+                  },
                   onSubmitted: (_) => onSubmitted(),
                 );
               },
-            ),
+            );
+            },
           ),
 
           SizedBox(height: 16),

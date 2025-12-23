@@ -346,7 +346,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('Even AI Demo'),
+          title: const Text('G1 Revival'),
           actions: [
             IconButton(
               tooltip: 'Features',

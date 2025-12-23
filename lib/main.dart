@@ -117,7 +117,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Even AI Demo',
+      title: 'G1 Revival',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),

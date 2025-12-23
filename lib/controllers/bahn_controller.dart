@@ -5,9 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/bahn_journey.dart';
 import '../services/bahn_service.dart';
+import '../services/iris_service.dart';
 
 class BahnController extends GetxController {
   final BahnService _bahnService = BahnService.instance;
+  final IrisService _irisService = IrisService.instance;
   final Uuid _uuid = Uuid();
 
   // Search state
@@ -186,8 +188,9 @@ class BahnController extends GetxController {
       return;
     }
 
-    if (departure.isBefore(DateTime.now())) {
-      searchError.value = 'Departure time must be in the future';
+    final now = DateTime.now();
+    if (departure.isBefore(now.subtract(Duration(hours: 8)))) {
+      searchError.value = 'Departure time can be up to 8 hours in the past';
       return;
     }
 
@@ -197,17 +200,89 @@ class BahnController extends GetxController {
     update();
 
     try {
-      final journeys = await _bahnService.findJourneys(
+      // Get DB trains from db-rest
+      final dbJourneys = await _bahnService.findJourneys(
         fromStationId: selectedFromStation.value!.id,
         toStationId: selectedToStation.value!.id,
         departure: departure,
         results: results,
       );
 
-      searchResults.value = journeys;
+      // Get FlixTrains from IRIS (runs in parallel)
+      final flixJourneys = await _irisService.getFlixTrainDepartures(
+        evaNumber: selectedFromStation.value!.id,
+        departureTime: departure,
+      );
 
-      if (journeys.isEmpty) {
+      // Filter FlixTrains to only those going to destination
+      final relevantFlixTrains = flixJourneys.where((journey) {
+        // Check if destination station name appears in the route
+        final destName = selectedToStation.value!.name.toLowerCase();
+        final firstLeg = journey.legs.first;
+        final stopMatches = firstLeg.stops.any(
+          (stop) => stop.toLowerCase().contains(destName),
+        );
+
+        // Simple check: does the destination appear in the leg's direction/destination?
+        return stopMatches ||
+            firstLeg.destination.name.toLowerCase().contains(destName) ||
+            firstLeg.direction.toLowerCase().contains(destName);
+      }).toList();
+
+      if (flixJourneys.isNotEmpty && relevantFlixTrains.isEmpty) {
+        final destName = selectedToStation.value!.name.toLowerCase();
+        print('[BahnController] Flix filter drop: dest="$destName"');
+        for (final journey in flixJourneys.take(5)) {
+          final leg = journey.legs.first;
+          print(
+            '[BahnController] Flix candidate ${leg.lineName} dir="${leg.direction}" '
+            'dest="${leg.destination.name}" stops="${leg.stops.join('|')}"',
+          );
+        }
+      }
+
+      // Fill in origin station for FlixTrains (create new legs with correct origin)
+      for (var i = 0; i < relevantFlixTrains.length; i++) {
+        final journey = relevantFlixTrains[i];
+        final oldLeg = journey.legs.first;
+
+        final newLeg = BahnLeg(
+          tripId: oldLeg.tripId,
+          lineName: oldLeg.lineName,
+          lineProduct: oldLeg.lineProduct,
+          direction: oldLeg.direction,
+          origin: selectedFromStation.value!,
+          destination: oldLeg.destination,
+          plannedDeparture: oldLeg.plannedDeparture,
+          actualDeparture: oldLeg.actualDeparture,
+          plannedArrival: oldLeg.plannedArrival,
+          actualArrival: oldLeg.actualArrival,
+          plannedPlatform: oldLeg.plannedPlatform,
+          actualPlatform: oldLeg.actualPlatform,
+          departureDelay: oldLeg.departureDelay,
+          arrivalDelay: oldLeg.arrivalDelay,
+        );
+
+        relevantFlixTrains[i] = BahnJourney(
+          id: journey.id,
+          legs: [newLeg],
+          plannedDeparture: journey.plannedDeparture,
+          plannedArrival: journey.plannedArrival,
+          duration: journey.duration,
+          changes: journey.changes,
+        );
+      }
+
+      // Merge and sort by departure time
+      final allJourneys = [...dbJourneys, ...relevantFlixTrains];
+      allJourneys.sort((a, b) => a.plannedDeparture.compareTo(b.plannedDeparture));
+
+      searchResults.value = allJourneys;
+
+      if (allJourneys.isEmpty) {
         searchError.value = 'No connections found. Try a different time.';
+      } else if (relevantFlixTrains.isNotEmpty) {
+        print('[BahnController] Found ${relevantFlixTrains.length} FlixTrains');
       }
     } on BahnServiceException catch (e) {
       searchError.value = e.message;

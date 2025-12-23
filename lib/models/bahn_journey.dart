@@ -61,6 +61,7 @@ class BahnLeg {
   final String? actualPlatform;
   final int? departureDelay; // In seconds
   final int? arrivalDelay; // In seconds
+  final List<String> stops;
 
   const BahnLeg({
     required this.tripId,
@@ -77,6 +78,7 @@ class BahnLeg {
     this.actualPlatform,
     this.departureDelay,
     this.arrivalDelay,
+    this.stops = const [],
   });
 
   factory BahnLeg.fromJson(Map<String, dynamic> json) {
@@ -101,6 +103,10 @@ class BahnLeg {
       actualPlatform: json['platform'] as String?,
       departureDelay: json['departureDelay'] as int?,
       arrivalDelay: json['arrivalDelay'] as int?,
+      stops: (json['stops'] as List<dynamic>?)
+              ?.map((stop) => stop.toString())
+              .toList() ??
+          const [],
     );
   }
 
@@ -122,6 +128,7 @@ class BahnLeg {
         if (actualPlatform != null) 'platform': actualPlatform,
         if (departureDelay != null) 'departureDelay': departureDelay,
         if (arrivalDelay != null) 'arrivalDelay': arrivalDelay,
+        if (stops.isNotEmpty) 'stops': stops,
       };
 
   // Computed properties
