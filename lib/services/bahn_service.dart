@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
 import '../models/bahn_journey.dart';
+import '../services/iris_service.dart';
 
 /// Service for interacting with the db-rest API (Deutsche Bahn)
 /// API Documentation: https://v6.db.transport.rest/
@@ -183,6 +184,10 @@ class BahnService {
   /// This re-fetches journey data to get latest delays and platform changes
   Future<BahnJourney> getRealtimeInfo(BahnJourney journey) async {
     try {
+      if (_isFlixJourney(journey)) {
+        return _getFlixRealtimeInfo(journey);
+      }
+
       print('[BahnService] Fetching real-time info for journey: ${journey.id}');
 
       // Re-search for journeys around the same time to get updated info
@@ -219,6 +224,90 @@ class BahnService {
     } catch (e) {
       print('[BahnService] Error fetching real-time info: $e');
       // On error, return the original journey (graceful degradation)
+      return journey;
+    }
+  }
+
+  bool _isFlixJourney(BahnJourney journey) {
+    final firstLeg = journey.legs.first;
+    final lineProduct = firstLeg.lineProduct.toUpperCase();
+    final lineName = firstLeg.lineName.toUpperCase();
+    return journey.id.startsWith('flix_') ||
+        lineProduct == 'FLX' ||
+        lineName.startsWith('FLX');
+  }
+
+  Future<BahnJourney> _getFlixRealtimeInfo(BahnJourney journey) async {
+    try {
+      if (journey.origin.id.isEmpty) {
+        return journey;
+      }
+
+      final referenceTime = journey.plannedDeparture.subtract(Duration(hours: 1));
+      final flixJourneys = await IrisService.instance.getFlixTrainDepartures(
+        evaNumber: journey.origin.id,
+        departureTime: referenceTime,
+      );
+
+      BahnJourney? match;
+      final tripId = journey.legs.first.tripId;
+      if (tripId.isNotEmpty) {
+        for (final candidate in flixJourneys) {
+          if (candidate.legs.first.tripId == tripId) {
+            match = candidate;
+            break;
+          }
+        }
+      }
+
+      if (match == null) {
+        final targetTime = journey.plannedDeparture;
+        for (final candidate in flixJourneys) {
+          final lineMatch = candidate.trainName == journey.trainName;
+          final diff = candidate.plannedDeparture.difference(targetTime).abs();
+          if (lineMatch && diff.inMinutes <= 5) {
+            match = candidate;
+            break;
+          }
+        }
+      }
+
+      if (match == null) {
+        return journey;
+      }
+
+      final originalLeg = journey.legs.first;
+      final matchLeg = match.legs.first;
+
+      final mergedLeg = BahnLeg(
+        tripId: originalLeg.tripId,
+        lineName: originalLeg.lineName,
+        lineProduct: originalLeg.lineProduct,
+        direction: matchLeg.direction.isNotEmpty ? matchLeg.direction : originalLeg.direction,
+        origin: originalLeg.origin,
+        destination: originalLeg.destination,
+        plannedDeparture: originalLeg.plannedDeparture,
+        actualDeparture: matchLeg.actualDeparture,
+        plannedArrival: originalLeg.plannedArrival,
+        actualArrival: matchLeg.actualArrival ?? originalLeg.actualArrival,
+        plannedPlatform: matchLeg.plannedPlatform ?? originalLeg.plannedPlatform,
+        actualPlatform: matchLeg.actualPlatform ?? originalLeg.actualPlatform,
+        departureDelay: matchLeg.departureDelay,
+        arrivalDelay: matchLeg.arrivalDelay ?? originalLeg.arrivalDelay,
+        stops: matchLeg.stops.isNotEmpty ? matchLeg.stops : originalLeg.stops,
+        realtimeNote: matchLeg.realtimeNote ?? originalLeg.realtimeNote,
+      );
+
+      return BahnJourney(
+        id: journey.id,
+        legs: [mergedLeg],
+        plannedDeparture: journey.plannedDeparture,
+        plannedArrival: journey.plannedArrival,
+        duration: journey.duration,
+        changes: journey.changes,
+      );
+    } catch (e) {
+      print('[BahnService] Flix real-time fetch error: $e');
       return journey;
     }
   }

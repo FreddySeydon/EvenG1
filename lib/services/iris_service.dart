@@ -77,6 +77,7 @@ class IrisService {
           if (dp == null) continue; // Only interested in departures
 
           final plannedTime = _parseTime(dp.getAttribute('pt') ?? '');
+          final actualTime = _parseTime(dp.getAttribute('ct') ?? '');
           if (plannedTime == null) continue;
 
           // Skip if departure is in the past or more than 12 hours away
@@ -84,6 +85,7 @@ class IrisService {
           if (diff.isNegative || diff.inHours > 12) continue;
 
           final platform = dp.getAttribute('pp') ?? '?';
+          final actualPlatform = dp.getAttribute('cp');
           final rawLineName = tl.getAttribute('fb') ?? dp.getAttribute('l') ?? 'FlixTrain';
           final lineName = rawLineName.startsWith('FLX') ? rawLineName : 'FLX $rawLineName';
           final tripId = stop.getAttribute('id') ?? '';
@@ -104,12 +106,12 @@ class IrisService {
             origin: BahnStation(id: '', name: ''), // Will be filled by caller
             destination: BahnStation(id: '', name: stations.last),
             plannedDeparture: plannedTime,
-            actualDeparture: null, // TODO: parse actual time if available
+            actualDeparture: actualTime,
             plannedArrival: plannedTime.add(Duration(hours: 2)), // Estimate
             actualArrival: null,
             plannedPlatform: platform,
-            actualPlatform: null,
-            departureDelay: null,
+            actualPlatform: actualPlatform,
+            departureDelay: _calculateDelaySeconds(plannedTime, actualTime),
             arrivalDelay: null,
             stops: stations,
           );
@@ -153,6 +155,11 @@ class IrisService {
     } catch (e) {
       return null;
     }
+  }
+
+  int? _calculateDelaySeconds(DateTime? planned, DateTime? actual) {
+    if (planned == null || actual == null) return null;
+    return actual.difference(planned).inSeconds;
   }
 
   /// Format DateTime to YYMMDD

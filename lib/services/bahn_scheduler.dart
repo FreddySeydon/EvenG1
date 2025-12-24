@@ -169,8 +169,15 @@ class BahnScheduler extends GetxService {
     final depStation = _shortenStationName(firstLeg.origin.name);
     final arrStation = _shortenStationName(lastLeg.destination.name);
 
+    final hasRealtime = _hasRealtimeData(journey);
+    final delayReason = _getDelayReason(journey);
+    final extraLine = hasRealtime
+        ? (delayReason != null ? '\nDelay: $delayReason' : '')
+        : '\nNo realtime data available';
+
     return 'Dep: $depStation $depTime Gl.$depPlatform $depDelay\n'
-        'Arr: $arrStation $arrTime Gl.$arrPlatform $arrDelay';
+        'Arr: $arrStation $arrTime Gl.$arrPlatform $arrDelay'
+        '$extraLine';
   }
 
   String _formatTime(DateTime dt) {
@@ -187,6 +194,46 @@ class BahnScheduler extends GetxService {
       return name.substring(0, 15);
     }
     return name;
+  }
+
+  bool _hasRealtimeData(BahnJourney journey) {
+    final isFlix = _isFlixJourney(journey);
+    for (final leg in journey.legs) {
+      final hasDelay =
+          leg.departureDelay != null || leg.arrivalDelay != null;
+      final hasPlatform = leg.actualPlatform != null;
+      final hasRealtimeNote = leg.realtimeNote != null;
+      final hasTimeDiff =
+          (leg.actualDeparture != null &&
+              leg.actualDeparture != leg.plannedDeparture) ||
+          (leg.actualArrival != null &&
+              leg.actualArrival != leg.plannedArrival);
+      final hasFlixActual = isFlix &&
+          (leg.actualDeparture != null || leg.actualArrival != null);
+
+      if (hasDelay || hasPlatform || hasRealtimeNote || hasTimeDiff || hasFlixActual) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isFlixJourney(BahnJourney journey) {
+    final firstLeg = journey.legs.first;
+    final lineProduct = firstLeg.lineProduct.toUpperCase();
+    final lineName = firstLeg.lineName.toUpperCase();
+    return journey.id.startsWith('flix_') ||
+        lineProduct == 'FLX' ||
+        lineName.startsWith('FLX');
+  }
+
+  String? _getDelayReason(BahnJourney journey) {
+    for (final leg in journey.legs) {
+      if (leg.realtimeNote != null && leg.realtimeNote!.trim().isNotEmpty) {
+        return leg.realtimeNote!.trim();
+      }
+    }
+    return null;
   }
 
   Future<bool> _sendToDashboard({

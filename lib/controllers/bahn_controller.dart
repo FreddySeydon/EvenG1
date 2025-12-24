@@ -261,6 +261,7 @@ class BahnController extends GetxController {
           actualPlatform: oldLeg.actualPlatform,
           departureDelay: oldLeg.departureDelay,
           arrivalDelay: oldLeg.arrivalDelay,
+          realtimeNote: oldLeg.realtimeNote,
         );
 
         relevantFlixTrains[i] = BahnJourney(

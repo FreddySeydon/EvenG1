@@ -62,6 +62,7 @@ class BahnLeg {
   final int? departureDelay; // In seconds
   final int? arrivalDelay; // In seconds
   final List<String> stops;
+  final String? realtimeNote;
 
   const BahnLeg({
     required this.tripId,
@@ -79,10 +80,12 @@ class BahnLeg {
     this.departureDelay,
     this.arrivalDelay,
     this.stops = const [],
+    this.realtimeNote,
   });
 
   factory BahnLeg.fromJson(Map<String, dynamic> json) {
     final line = json['line'] as Map<String, dynamic>?;
+    final remarks = json['remarks'] as List<dynamic>?;
 
     return BahnLeg(
       tripId: json['tripId'] as String,
@@ -107,6 +110,7 @@ class BahnLeg {
               ?.map((stop) => stop.toString())
               .toList() ??
           const [],
+      realtimeNote: _extractRealtimeNote(remarks),
     );
   }
 
@@ -129,6 +133,7 @@ class BahnLeg {
         if (departureDelay != null) 'departureDelay': departureDelay,
         if (arrivalDelay != null) 'arrivalDelay': arrivalDelay,
         if (stops.isNotEmpty) 'stops': stops,
+        if (realtimeNote != null) 'realtimeNote': realtimeNote,
       };
 
   // Computed properties
@@ -154,6 +159,36 @@ class BahnLeg {
 
   DateTime get effectiveArrival {
     return actualArrival ?? plannedArrival;
+  }
+
+  static String? _extractRealtimeNote(List<dynamic>? remarks) {
+    if (remarks == null || remarks.isEmpty) return null;
+
+    for (final remark in remarks) {
+      if (remark is! Map) continue;
+
+      final type = (remark['type'] as String?)?.toLowerCase();
+      if (type == 'hint') continue;
+
+      final code = (remark['code'] as String?)?.toLowerCase();
+      final summary = (remark['summary'] as String?)?.trim();
+      final text = (remark['text'] as String?)?.trim();
+      final candidate = summary?.isNotEmpty == true ? summary : text;
+      if (candidate == null || candidate.isEmpty) continue;
+
+      final lower = candidate.toLowerCase();
+      final looksLikeDelay = lower.contains('delay') ||
+          lower.contains('delayed') ||
+          lower.contains('versp') ||
+          (code?.contains('delay') ?? false) ||
+          (code?.contains('late') ?? false);
+
+      if (looksLikeDelay || type == 'warning') {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 }
 
