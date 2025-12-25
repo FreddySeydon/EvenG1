@@ -145,6 +145,7 @@ class BleMethodChannel(
                     "checkBatteryOptimization" -> checkBatteryOptimization(call, result)
                     "showWeatherNotification" -> showWeatherNotification(call, result)
                     "resolveCallerName" -> resolveCallerName(call, result)
+                    "setVolumeKeyHandlingEnabled" -> setVolumeKeyHandlingEnabled(call, result)
                     else -> result.notImplemented()
                 }
             } catch (e: Exception) {
@@ -201,6 +202,7 @@ class BleMethodChannel(
     fun flutterGlassesDisconnected(deviceInfo: Map<String, Any>) = methodChannel.invokeMethod("glassesDisconnected", deviceInfo)
 
     fun flutterGlassesConnectionFailed(status: Int) = methodChannel.invokeMethod("glassesConnectionFailed", status)
+    fun flutterVolumeKey(direction: String) = methodChannel.invokeMethod("volumeKey", mapOf("direction" to direction))
 
     fun checkNotificationPermission(call: MethodCall, result: MethodChannel.Result) {
         val service = com.example.demo_ai_even.notification.AppNotificationListenerService.instance
@@ -371,6 +373,13 @@ class BleMethodChannel(
             Log.e(TAG, "Error requesting battery optimization", e)
             result.error("EXCEPTION", "Error requesting battery optimization: ${e.message}", null)
         }
+    }
+
+    fun setVolumeKeyHandlingEnabled(call: MethodCall, result: MethodChannel.Result) {
+        val arguments = call.arguments as? Map<*, *>
+        val enabled = arguments?.get("enabled") as? Boolean ?: false
+        MainActivity.volumeKeyHandlingEnabled = enabled
+        result.success(enabled)
     }
     
     fun checkBatteryOptimization(call: MethodCall, result: MethodChannel.Result) {

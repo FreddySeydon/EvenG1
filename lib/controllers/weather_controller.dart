@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:demo_ai_even/services/weather_service.dart';
 import 'package:demo_ai_even/services/proto.dart';
 import 'package:demo_ai_even/ble_manager.dart';
+import 'package:demo_ai_even/services/teleprompter_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -228,6 +229,9 @@ class WeatherController extends GetxController {
   /// [silent]: If true, don't set error messages (for auto-updates)
   /// [treatAsForeground]: If true, force foreground flow even if app is marked background (useful on fresh connect)
   Future<void> fetchAndSendWeather({bool silent = false, bool treatAsForeground = false}) async {
+    if (TeleprompterService.isActive) {
+      return;
+    }
     print('fetchAndSendWeather called: silent=$silent, isConnected=${BleManager.get().isConnected}, treatAsForeground=$treatAsForeground');
     
     if (!BleManager.get().isConnected) {

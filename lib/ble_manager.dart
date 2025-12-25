@@ -8,6 +8,7 @@ import 'package:demo_ai_even/services/text_service.dart';
 import 'package:demo_ai_even/services/pin_text_service.dart';
 import 'package:demo_ai_even/controllers/pin_text_controller.dart';
 import 'package:demo_ai_even/services/notification_service.dart';
+import 'package:demo_ai_even/services/teleprompter_service.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
@@ -16,6 +17,7 @@ typedef SendResultParse = bool Function(Uint8List value);
 class BleManager {
   Function()? onStatusChanged;
   Function(String lr)? onTouchpadTap; // Callback for touchpad taps (L or R)
+  Function(String direction)? onVolumeKey; // Callback for volume key events
   BleManager._() {}
 
   static BleManager? _instance;
@@ -225,6 +227,15 @@ class BleManager {
         break;
       case 'foundPairedGlasses':
         _onPairedGlassesFound(Map<String, String>.from(call.arguments));
+        break;
+      case 'volumeKey':
+        if (call.arguments is Map) {
+          final args = Map<String, dynamic>.from(call.arguments);
+          final direction = args['direction'] as String?;
+          if (direction != null) {
+            onVolumeKey?.call(direction);
+          }
+        }
         break;
       default:
         print('Unknown method: ${call.method}');
@@ -739,6 +750,10 @@ class BleManager {
     SendResultParse? isSuccess,
     int? retry,
   }) async {
+    if (data is Uint8List && _shouldBlockOutgoing(data)) {
+      print("sendBoth blocked for cmd 0x${data[0].toRadixString(16)} during teleprompter");
+      return false;
+    }
 
     var ret = await BleManager.requestRetry(data,
         lr: "L", timeoutMs: timeoutMs, retry: retry ?? 0);
@@ -763,6 +778,10 @@ class BleManager {
 
   static Future sendData(Uint8List data,
       {String? lr, Map<String, dynamic>? other, int secondDelay = 100}) async {
+    if (_shouldBlockOutgoing(data)) {
+      print("sendData blocked for cmd 0x${data[0].toRadixString(16)} during teleprompter");
+      return false;
+    }
 
     var params = <String, dynamic>{
       'data': data,
@@ -798,6 +817,12 @@ class BleManager {
       Map<String, dynamic>? other,
       int timeoutMs = 1000, //500,
       bool useNext = false}) async {
+    if (_shouldBlockOutgoing(data)) {
+      print("request blocked for cmd 0x${data[0].toRadixString(16)} during teleprompter");
+      final ret = BleReceive();
+      ret.isTimeout = true;
+      return ret;
+    }
 
     var lr0 = lr ?? Proto.lR();
     var completer = Completer<BleReceive>();
@@ -853,6 +878,10 @@ class BleManager {
     String? lr,
     int? timeoutMs,
   }) async {
+    if (sendList.isNotEmpty && _shouldBlockOutgoing(sendList.first)) {
+      print("requestList blocked for cmd 0x${sendList.first[0].toRadixString(16)} during teleprompter");
+      return false;
+    }
     print("requestList---sendList---${sendList.first}----lr---$lr----timeoutMs----$timeoutMs-");
 
     if (lr != null) {
@@ -874,6 +903,13 @@ class BleManager {
 
   static Future<bool> _requestList(List sendList, String lr,
       {bool keepLast = false, int? timeoutMs}) async {
+    if (sendList.isNotEmpty && sendList.first is Uint8List) {
+      final first = sendList.first as Uint8List;
+      if (_shouldBlockOutgoing(first)) {
+        print("_requestList blocked for cmd 0x${first[0].toRadixString(16)} during teleprompter");
+        return false;
+      }
+    }
     int len = sendList.length;
     if (keepLast) len = sendList.length - 1;
     for (var i = 0; i < len; i++) {
@@ -903,6 +939,13 @@ class BleManager {
       }
     }
     return true;
+  }
+
+  static bool _shouldBlockOutgoing(Uint8List data) {
+    if (!TeleprompterService.isActive) return false;
+    if (data.isEmpty) return false;
+    final cmd = data[0].toInt();
+    return !(cmd == 0x09 || cmd == 0x25 || cmd == 0x18);
   }
 
 }

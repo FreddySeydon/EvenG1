@@ -19,6 +19,10 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity: FlutterActivity() {
+    companion object {
+        @Volatile
+        var volumeKeyHandlingEnabled: Boolean = false
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -195,6 +199,22 @@ class MainActivity: FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         BleChannelHelper.initChannel(this, flutterEngine)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (volumeKeyHandlingEnabled) {
+            when (keyCode) {
+                android.view.KeyEvent.KEYCODE_VOLUME_UP -> {
+                    BleChannelHelper.bleMC.flutterVolumeKey("up")
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    BleChannelHelper.bleMC.flutterVolumeKey("down")
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
     
     override fun onPause() {

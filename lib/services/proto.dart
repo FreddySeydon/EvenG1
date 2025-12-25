@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/services/evenai_proto.dart';
+import 'package:demo_ai_even/services/teleprompter_service.dart';
 import 'package:demo_ai_even/utils/utils.dart';
 
 class Proto {
@@ -205,6 +206,10 @@ class Proto {
   /// - app [Map] 通知消息数据
   static Future<bool> sendNotify(Map appData, int notifyId,
       {int retry = 6}) async {
+    if (TeleprompterService.isActive) {
+      print("proto -> sendNotify: Skipped during teleprompter session");
+      return false;
+    }
     final notifyJson = jsonEncode({
       "ncs_notification": appData,
     });
@@ -489,6 +494,10 @@ class Proto {
     bool use12HourFormat = false,
     int? epochTimeSeconds,
   }) async {
+    if (TeleprompterService.isActive) {
+      print("setTimeAndWeather: Skipped during teleprompter session");
+      return false;
+    }
     // Validate weather icon ID (0x00-0x10)
     if (weatherIconId < 0 || weatherIconId > 0x10) {
       print("setTimeAndWeather: Invalid weather icon ID $weatherIconId (must be 0x00-0x10)");
@@ -627,6 +636,10 @@ class Proto {
     required int modeId,
     int secondaryPaneId = 0x00,
   }) async {
+    if (TeleprompterService.isActive) {
+      print("setDashboardMode: Skipped during teleprompter session");
+      return false;
+    }
     // Validate mode ID range (0x00 to 0x02)
     if (modeId < 0 || modeId > 0x02) {
       print("setDashboardMode: Invalid mode ID $modeId (must be 0x00-0x02)");

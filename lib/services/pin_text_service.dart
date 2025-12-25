@@ -3,6 +3,7 @@ import 'package:demo_ai_even/services/text_service.dart';
 import 'package:demo_ai_even/services/evenai.dart';
 import 'package:demo_ai_even/services/proto.dart';
 import 'package:demo_ai_even/app.dart';
+import 'package:demo_ai_even/services/teleprompter_service.dart';
 
 class PinTextService {
   static PinTextService? _instance;
@@ -16,6 +17,10 @@ class PinTextService {
   /// This sends the note as text (same as Text feature)
   /// Note: Need to ensure we're in dashboard mode first (exit other features)
   Future<bool> sendPinText(String content) async {
+    if (TeleprompterService.isActive) {
+      print('PinTextService: Skipped during teleprompter session');
+      return false;
+    }
     if (!BleManager.isBothConnected()) {
       print('PinTextService: Not connected to glasses');
       return false;
@@ -60,4 +65,3 @@ class PinTextService {
 
   bool get isActive => _isActive;
 }
-

@@ -7,6 +7,7 @@ import 'package:demo_ai_even/controllers/addon_controller.dart';
 import 'package:demo_ai_even/controllers/time_notes_controller.dart';
 import 'package:demo_ai_even/controllers/calendar_controller.dart';
 import 'package:demo_ai_even/controllers/bahn_controller.dart';
+import 'package:demo_ai_even/controllers/teleprompter_controller.dart';
 import 'package:demo_ai_even/services/notification_service.dart';
 import 'package:demo_ai_even/services/pin_text_voice_service.dart';
 import 'package:demo_ai_even/services/time_notes_scheduler.dart';
@@ -29,6 +30,7 @@ void main() async {
   Get.put(TimeNotesScheduler());
   Get.put(BahnController());
   Get.put(BahnScheduler());
+  Get.put(TeleprompterController());
   
   // Initialize notification service
   await _initializeNotificationService();

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../ble_manager.dart';
 import 'proto.dart';
+import 'teleprompter_service.dart';
 
 class DashboardNoteService {
   static DashboardNoteService? _instance;
@@ -21,6 +22,9 @@ class DashboardNoteService {
     required String text,
     int noteNumber = 1,
   }) async {
+    if (TeleprompterService.isActive) {
+      return false;
+    }
     if (!BleManager.get().isConnected) {
       return false;
     }
@@ -39,6 +43,7 @@ class DashboardNoteService {
 
   /// Clear a numbered note slot by sending the delete command.
   Future<void> clearNote({int noteNumber = 1}) async {
+    if (TeleprompterService.isActive) return;
     if (!BleManager.get().isConnected) return;
     final packet = _buildDeleteCommand(noteNumber);
     await _sendToBoth(packet);

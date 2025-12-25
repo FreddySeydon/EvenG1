@@ -6,6 +6,7 @@ import '../models/bahn_journey.dart';
 import '../services/bahn_service.dart';
 import '../services/dashboard_note_service.dart';
 import '../ble_manager.dart';
+import '../services/teleprompter_service.dart';
 
 /// Background scheduler for Bahn addon
 /// Handles smart refresh and automatic dashboard updates
@@ -41,6 +42,9 @@ class BahnScheduler extends GetxService {
 
   Future<void> _tick() async {
     try {
+      if (TeleprompterService.isActive) {
+        return;
+      }
       final controller = Get.find<BahnController>();
       final now = DateTime.now();
 

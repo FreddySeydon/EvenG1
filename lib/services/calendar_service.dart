@@ -6,6 +6,7 @@ import '../ble_manager.dart';
 import '../controllers/weather_controller.dart';
 import '../models/calendar_item.dart';
 import 'proto.dart';
+import 'teleprompter_service.dart';
 
 class CalendarService {
   static CalendarService? _instance;
@@ -22,6 +23,7 @@ class CalendarService {
     String? titleOverride,
     bool fullSync = false,
   }) async {
+    if (TeleprompterService.isActive) return false;
     if (!BleManager.get().isConnected) return false;
 
     if (fullSync) {

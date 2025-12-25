@@ -8,6 +8,7 @@ import '../controllers/weather_controller.dart';
 import '../models/time_note.dart';
 import 'dashboard_note_service.dart';
 import 'proto.dart';
+import 'teleprompter_service.dart';
 import 'world_time_service.dart';
 
 /// Background helper that watches active time-aware notes and automatically
@@ -56,6 +57,9 @@ class TimeNotesScheduler extends GetxService {
   Future<void> resendActiveNow() => _handleActive();
 
   Future<void> _handleActive() async {
+    if (TeleprompterService.isActive) {
+      return;
+    }
     final now = DateTime.now();
     final actives = _controller.activeNotes;
     if (actives.isEmpty) {
@@ -229,6 +233,7 @@ class TimeNotesScheduler extends GetxService {
   }
 
   Future<void> _tickWorldTime() async {
+    if (TeleprompterService.isActive) return;
     final svc = WorldTimeService.instance;
     await svc.ensureReady();
     if (!svc.enabled) return;
@@ -253,6 +258,7 @@ class TimeNotesScheduler extends GetxService {
   }
 
   Future<void> _tickWorldTimeWithNote() async {
+    if (TeleprompterService.isActive) return;
     final svc = WorldTimeService.instance;
     await svc.ensureReady();
     if (!svc.enabled) return;
